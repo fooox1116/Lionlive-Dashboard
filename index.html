@@ -188,13 +188,23 @@
     // ============ STATE ============
     var rawExpenseData = [];
     var processedExpenseData = [];
-    var rev = [
-      { id: 1, year: 2025, month: 7, businessUnit: 'Latam agency', amount: 33.46, description: 'TikTok Revenue' },
-      { id: 2, year: 2025, month: 8, businessUnit: 'Latam agency', amount: 484.76, description: 'TikTok Revenue' },
-      { id: 3, year: 2025, month: 9, businessUnit: 'Latam agency', amount: 1027.46, description: 'TikTok Revenue' },
-      { id: 4, year: 2025, month: 10, businessUnit: 'Latam agency', amount: 3841.83, description: 'TikTok Revenue' },
-      { id: 5, year: 2025, month: 11, businessUnit: 'Latam agency', amount: 2713.92, description: 'TikTok Revenue' },
-    ];
+    // Load revenue from localStorage, or use defaults
+    var rev = (function() {
+      try {
+        var saved = localStorage.getItem('dashboard_revenue');
+        if (saved) {
+          var parsed = JSON.parse(saved);
+          if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+        }
+      } catch(e) { console.log('Could not load saved revenue:', e); }
+      return [
+        { id: 1, year: 2025, month: 7, businessUnit: 'Latam agency', amount: 33.46, description: 'TikTok Revenue' },
+        { id: 2, year: 2025, month: 8, businessUnit: 'Latam agency', amount: 484.76, description: 'TikTok Revenue' },
+        { id: 3, year: 2025, month: 9, businessUnit: 'Latam agency', amount: 1027.46, description: 'TikTok Revenue' },
+        { id: 4, year: 2025, month: 10, businessUnit: 'Latam agency', amount: 3841.83, description: 'TikTok Revenue' },
+        { id: 5, year: 2025, month: 11, businessUnit: 'Latam agency', amount: 2713.92, description: 'TikTok Revenue' },
+      ];
+    })();
     var selYears = [2025];
     var selBUs = BUS.slice();
     var visCats = new Set(CATS);
@@ -483,7 +493,9 @@
         var y = adjustEarlyMonth ? e.adjustedYear : e.year;
         return selYears.indexOf(y) !== -1 && selBUs.indexOf(e.subCategory) !== -1;
       });
-      var fRev = rev.filter(function(r) { return selYears.indexOf(r.year) !== -1; });
+      var fRev = rev.filter(function(r) { 
+        return selYears.indexOf(r.year) !== -1 && selBUs.indexOf(r.businessUnit) !== -1; 
+      });
       var alloc = document.getElementById('allocateOffice').checked;
       var data = {};
 
@@ -553,7 +565,9 @@
         var y = adjustEarlyMonth ? e.adjustedYear : e.year;
         return selYears.indexOf(y) !== -1 && selBUs.indexOf(e.subCategory) !== -1;
       });
-      var fRev = rev.filter(function(r) { return selYears.indexOf(r.year) !== -1; });
+      var fRev = rev.filter(function(r) { 
+        return selYears.indexOf(r.year) !== -1 && selBUs.indexOf(r.businessUnit) !== -1; 
+      });
       var tRev = fRev.reduce(function(s, r) { return s + r.amount; }, 0);
       var tExp = fExp.reduce(function(s, e) { return s + e.inUSD; }, 0);
       var net = tRev - tExp;
@@ -699,6 +713,8 @@
       } else {
         rev.push(Object.assign({}, nr, { id: Date.now() }));
       }
+      // Save to localStorage
+      try { localStorage.setItem('dashboard_revenue', JSON.stringify(rev)); } catch(e) {}
       hideRevForm();
       updateAll();
     }
@@ -706,6 +722,8 @@
     function delRev(id) {
       if (confirm('Delete this revenue record?')) {
         rev = rev.filter(function(r) { return r.id !== id; });
+        // Save to localStorage
+        try { localStorage.setItem('dashboard_revenue', JSON.stringify(rev)); } catch(e) {}
         updateAll();
       }
     }
