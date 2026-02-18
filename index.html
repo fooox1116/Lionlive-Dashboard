@@ -148,24 +148,10 @@
     <div id="revenueTab" class="hidden">
       <div style="display:flex;justify-content:space-between;margin-bottom:16px;flex-wrap:wrap;gap:8px">
         <h3 style="font-size:18px;font-weight:600">💵 Revenue Records</h3>
-        <button class="btn btn-success" onclick="showRevForm()">➕ Add</button>
+        <a href="https://docs.google.com/spreadsheets/d/1ec0Nb8EwzsxQ6hDTtCCTuzswWIR_uj-0bBFlyDQJbzY/edit" target="_blank" class="btn btn-secondary" style="text-decoration:none">📝 Edit in Google Sheets</a>
       </div>
-      <div id="revForm" class="card hidden">
-        <div style="display:flex;justify-content:space-between;margin-bottom:16px">
-          <h4 id="formTitle">➕ Add Revenue</h4>
-          <button onclick="hideRevForm()" style="background:none;border:none;color:#a1a1aa;cursor:pointer;font-size:20px">✕</button>
-        </div>
-        <div class="form-grid">
-          <div class="form-group"><label>Year</label><input type="number" id="revYear" value="2025"></div>
-          <div class="form-group"><label>Month</label><select id="revMonth"></select></div>
-          <div class="form-group"><label>BU</label><select id="revBU"></select></div>
-          <div class="form-group"><label>Amount (USD)</label><input type="number" id="revAmt" step="0.01"></div>
-          <div class="form-group"><label>Description</label><input type="text" id="revDesc"></div>
-        </div>
-        <div class="form-actions">
-          <button class="btn btn-success" onclick="saveRev()">💾 Save</button>
-          <button class="btn btn-secondary" onclick="hideRevForm()">Cancel</button>
-        </div>
+      <div class="info-box info-green" style="margin-bottom:16px">
+        ℹ️ Revenue data is synced from Google Sheets. Edit the spreadsheet and click "Refresh" to update.
       </div>
       <div class="card" style="overflow:auto"><table id="revTable"></table></div>
     </div>
@@ -175,7 +161,8 @@
 
   <script>
     // ============ CONFIG ============
-    var API_URL = 'https://script.google.com/macros/s/AKfycbxw-1lNdVQAzCPVfYhPUkbifKceJqgx05-AZbkobLwgH420nxep2pv1YAhSyciPlLz2hg/exec';
+    var EXPENSE_API_URL = 'https://script.google.com/macros/s/AKfycbxw-1lNdVQAzCPVfYhPUkbifKceJqgx05-AZbkobLwgH420nxep2pv1YAhSyciPlLz2hg/exec';
+    var REVENUE_API_URL = 'https://script.google.com/macros/s/AKfycbwNCks_W4-1qr4Drk5rEvB-4cIQGwpu3SLo5Q5gQ8H9YoltCMbBZsj6tPvbWKZNIPXz/exec';
 
     // ============ CONSTANTS ============
     var CATS = ['Salary', 'Admin', 'Marketing', 'Creator Incentives', 'Office Rent', 'Offline'];
@@ -188,30 +175,13 @@
     // ============ STATE ============
     var rawExpenseData = [];
     var processedExpenseData = [];
-    // Load revenue from localStorage, or use defaults
-    var rev = (function() {
-      try {
-        var saved = localStorage.getItem('dashboard_revenue');
-        if (saved) {
-          var parsed = JSON.parse(saved);
-          if (Array.isArray(parsed) && parsed.length > 0) return parsed;
-        }
-      } catch(e) { console.log('Could not load saved revenue:', e); }
-      return [
-        { id: 1, year: 2025, month: 7, businessUnit: 'Latam agency', amount: 33.46, description: 'TikTok Revenue' },
-        { id: 2, year: 2025, month: 8, businessUnit: 'Latam agency', amount: 484.76, description: 'TikTok Revenue' },
-        { id: 3, year: 2025, month: 9, businessUnit: 'Latam agency', amount: 1027.46, description: 'TikTok Revenue' },
-        { id: 4, year: 2025, month: 10, businessUnit: 'Latam agency', amount: 3841.83, description: 'TikTok Revenue' },
-        { id: 5, year: 2025, month: 11, businessUnit: 'Latam agency', amount: 2713.92, description: 'TikTok Revenue' },
-      ];
-    })();
+    var rev = []; // Will be loaded from Google Sheets API
     var selYears = [2025];
     var selBUs = BUS.slice();
     var visCats = new Set(CATS);
     var visBUs = new Set(BUS);
     var tab = 'overview';
     var pnlView = 'total';
-    var editId = null;
     var charts = {};
 
     // ============ HELPER: Extract Year from Date ============
@@ -259,12 +229,18 @@
       document.getElementById('loading').className = 'loading';
       document.getElementById('app').className = 'container hidden';
 
-      fetch(API_URL)
-        .then(function(response) { return response.json(); })
-        .then(function(data) {
-          var expenses = data.expenses || [];
-          console.log('API returned', expenses.length, 'rows');
-          console.log('Sample row:', expenses[0]);
+      // Fetch both expense and revenue data in parallel
+      Promise.all([
+        fetch(EXPENSE_API_URL).then(function(r) { return r.json(); }),
+        fetch(REVENUE_API_URL).then(function(r) { return r.json(); })
+      ])
+        .then(function(results) {
+          var expenseData = results[0];
+          var revenueData = results[1];
+          
+          // Process Expenses
+          var expenses = expenseData.expenses || [];
+          console.log('Expense API returned', expenses.length, 'rows');
           
           if (expenses.length > 0) {
             var totalUSD = 0;
@@ -278,18 +254,8 @@
               var subCategory = item["Sub-category"] || '';
               var year = extractYearFromDate(item.Date);
               
-              // Skip rows with no valid USD amount
-              if (usdAmount <= 0) {
-                skippedRows++;
-                console.log('Skipped row (no USD):', item.Item, item["In USD"]);
-                return;
-              }
-              
-              // Skip rows with no category/subcategory
-              if (!category || !subCategory) {
-                skippedRows++;
-                return;
-              }
+              if (usdAmount <= 0) { skippedRows++; return; }
+              if (!category || !subCategory) { skippedRows++; return; }
               
               totalUSD += usdAmount;
               
@@ -304,17 +270,40 @@
               });
             });
             
-            console.log('Processed', rawExpenseData.length, 'valid rows');
-            console.log('Skipped', skippedRows, 'rows');
-            console.log('Total USD:', totalUSD.toFixed(2));
-            
-            document.getElementById('dataSource').textContent = '✅ Google Sheets';
-            document.getElementById('dataSource').style.color = '#10B981';
-            document.getElementById('debugInfo').textContent = rawExpenseData.length + ' rows, Total: $' + totalUSD.toFixed(2);
-            document.getElementById('errorBox').className = 'info-box info-yellow hidden';
-          } else {
-            throw new Error('No data from API');
+            console.log('Processed', rawExpenseData.length, 'expense rows, Total: $' + totalUSD.toFixed(2));
+            document.getElementById('debugInfo').textContent = rawExpenseData.length + ' expenses, $' + totalUSD.toFixed(2);
           }
+          
+          // Process Revenue
+          var revenueItems = revenueData.revenue || [];
+          console.log('Revenue API returned', revenueItems.length, 'rows');
+          
+          if (revenueItems.length > 0) {
+            var totalRev = 0;
+            rev = [];
+            
+            revenueItems.forEach(function(item, idx) {
+              var amount = parseFloat(item.amount) || 0;
+              if (amount > 0) {
+                totalRev += amount;
+                rev.push({
+                  id: idx + 1,
+                  year: parseInt(item.year) || 2025,
+                  month: parseInt(item.month) || 1,
+                  businessUnit: item.businessUnit || 'Latam agency',
+                  amount: amount,
+                  description: 'From Google Sheets'
+                });
+              }
+            });
+            
+            console.log('Processed', rev.length, 'revenue rows, Total: $' + totalRev.toFixed(2));
+            document.getElementById('debugInfo').textContent += ' | ' + rev.length + ' revenue, $' + totalRev.toFixed(2);
+          }
+          
+          document.getElementById('dataSource').textContent = '✅ Google Sheets (Live)';
+          document.getElementById('dataSource').style.color = '#10B981';
+          document.getElementById('errorBox').className = 'info-box info-yellow hidden';
           finishLoading();
         })
         .catch(function(err) {
@@ -323,8 +312,8 @@
           document.getElementById('dataSource').style.color = '#F59E0B';
           document.getElementById('errorBox').textContent = '⚠️ Could not connect to Google Sheets: ' + err.message;
           document.getElementById('errorBox').className = 'info-box info-yellow';
-          // Use empty data, don't use fallback that might have wrong values
           rawExpenseData = [];
+          rev = [];
           finishLoading();
         });
     }
@@ -415,9 +404,6 @@
       document.getElementById('pnlTabs').innerHTML =
         '<button class="btn ' + (pnlView === 'total' ? 'btn-primary' : 'btn-secondary') + '" onclick="setPnl(\'total\')">Total</button>' +
         BUS3.map(function(b) { return '<button class="btn" style="background:' + (pnlView === b ? BU_COL[b] : '#27272a') + ';color:' + (pnlView === b ? '#fff' : '#a1a1aa') + '" onclick="setPnl(\'' + b + '\')">' + b + '</button>'; }).join('');
-
-      document.getElementById('revMonth').innerHTML = MO.slice(1).map(function(m, i) { return '<option value="' + (i + 1) + '">' + m + '</option>'; }).join('');
-      document.getElementById('revBU').innerHTML = BUS3.map(function(b) { return '<option value="' + b + '">' + b + '</option>'; }).join('');
     }
 
     // ============ FILTER FUNCTIONS ============
@@ -580,7 +566,7 @@
         '<div class="card"><p class="kpi-label">📊 Net Profit</p><p class="kpi-value ' + (net >= 0 ? 'green' : 'red') + '">' + fmt(net) + '</p></div>' +
         '<div class="card"><p class="kpi-label">📈 Profit Margin</p><p class="kpi-value ' + (net >= 0 ? 'green' : 'red') + '">' + margin + '%</p></div>';
 
-      document.getElementById('footer').textContent = 'Financial Dashboard v7.1 · ' + processedExpenseData.length + ' expenses · ' + rev.length + ' revenue';
+      document.getElementById('footer').textContent = 'Financial Dashboard v7.3 · ' + processedExpenseData.length + ' expenses · ' + rev.length + ' revenue';
 
       var labels = pnl.map(function(d) { return d.label; });
       var chartOpts = { responsive: true, maintainAspectRatio: false, plugins: { legend: { labels: { color: '#a1a1aa' } } }, scales: { x: { ticks: { color: '#71717a' } }, y: { ticks: { color: '#71717a' } } } };
@@ -662,70 +648,13 @@
         options: chartOpts
       });
 
-      // Revenue Table
-      var rt = '<thead><tr><th>Period</th><th>Business Unit</th><th class="text-right">Amount</th><th>Description</th><th class="text-center">Actions</th></tr></thead><tbody>';
+      // Revenue Table (read-only, data from Google Sheets)
+      var rt = '<thead><tr><th>Period</th><th>Business Unit</th><th class="text-right">Amount (USD)</th></tr></thead><tbody>';
       rev.slice().sort(function(a, b) { return b.year - a.year || b.month - a.month; }).forEach(function(r) {
-        rt += '<tr><td>' + MO[r.month] + ' ' + r.year + '</td><td><span class="badge" style="background:' + BU_COL[r.businessUnit] + '">' + r.businessUnit + '</span></td><td class="text-right green" style="font-weight:600">$' + r.amount.toFixed(2) + '</td><td style="color:#a1a1aa">' + r.description + '</td><td class="text-center"><button onclick="editRev(' + r.id + ')" style="background:none;border:none;color:#3B82F6;cursor:pointer;font-size:16px">✏️</button><button onclick="delRev(' + r.id + ')" style="background:none;border:none;color:#EF4444;cursor:pointer;font-size:16px">🗑️</button></td></tr>';
+        rt += '<tr><td>' + MO[r.month] + ' ' + r.year + '</td><td><span class="badge" style="background:' + BU_COL[r.businessUnit] + '">' + r.businessUnit + '</span></td><td class="text-right green" style="font-weight:600">$' + r.amount.toLocaleString('en-US', {minimumFractionDigits: 0, maximumFractionDigits: 0}) + '</td></tr>';
       });
       rt += '</tbody>';
       document.getElementById('revTable').innerHTML = rt;
-    }
-
-    // ============ REVENUE CRUD ============
-    function showRevForm() {
-      editId = null;
-      document.getElementById('formTitle').textContent = '➕ Add Revenue';
-      document.getElementById('revYear').value = 2025;
-      document.getElementById('revMonth').value = 12;
-      document.getElementById('revBU').value = 'Latam agency';
-      document.getElementById('revAmt').value = 0;
-      document.getElementById('revDesc').value = '';
-      document.getElementById('revForm').className = 'card';
-    }
-
-    function hideRevForm() {
-      document.getElementById('revForm').className = 'card hidden';
-    }
-
-    function editRev(id) {
-      var r = rev.find(function(x) { return x.id === id; });
-      if (!r) return;
-      editId = id;
-      document.getElementById('formTitle').textContent = '✏️ Edit Revenue';
-      document.getElementById('revYear').value = r.year;
-      document.getElementById('revMonth').value = r.month;
-      document.getElementById('revBU').value = r.businessUnit;
-      document.getElementById('revAmt').value = r.amount;
-      document.getElementById('revDesc').value = r.description;
-      document.getElementById('revForm').className = 'card';
-    }
-
-    function saveRev() {
-      var nr = {
-        year: parseInt(document.getElementById('revYear').value),
-        month: parseInt(document.getElementById('revMonth').value),
-        businessUnit: document.getElementById('revBU').value,
-        amount: parseFloat(document.getElementById('revAmt').value) || 0,
-        description: document.getElementById('revDesc').value
-      };
-      if (editId) {
-        rev = rev.map(function(r) { return r.id === editId ? Object.assign({}, nr, { id: r.id }) : r; });
-      } else {
-        rev.push(Object.assign({}, nr, { id: Date.now() }));
-      }
-      // Save to localStorage
-      try { localStorage.setItem('dashboard_revenue', JSON.stringify(rev)); } catch(e) {}
-      hideRevForm();
-      updateAll();
-    }
-
-    function delRev(id) {
-      if (confirm('Delete this revenue record?')) {
-        rev = rev.filter(function(r) { return r.id !== id; });
-        // Save to localStorage
-        try { localStorage.setItem('dashboard_revenue', JSON.stringify(rev)); } catch(e) {}
-        updateAll();
-      }
     }
 
     // ============ INIT ============
