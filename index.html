@@ -235,7 +235,7 @@
             expenses.forEach(function(item) {
               var usdAmount = getUSDValue(item);
               var category = item.Category || '';
-              var subCategory = item["Sub-category"] || '';
+              var subCategory = item["Sub-category"] || item["Business Unit"] || '';
               var year = extractYearFromDate(item.Date);
               if (usdAmount <= 0 || !category || !subCategory) return;
               totalUSD += usdAmount;
@@ -517,7 +517,7 @@
         '<div class="card"><p class="kpi-label">📊 Net Profit</p><p class="kpi-value ' + (net >= 0 ? 'green' : 'red') + '">' + fmt(net) + '</p></div>' +
         '<div class="card"><p class="kpi-label">📈 Profit Margin</p><p class="kpi-value ' + (net >= 0 ? 'green' : 'red') + '">' + margin + '%</p></div>';
 
-      document.getElementById('footer').textContent = 'Financial Dashboard v7.6 · ' + processedExpenseData.length + ' expenses · ' + rev.length + ' revenue';
+      document.getElementById('footer').textContent = 'Financial Dashboard v7.7 · ' + processedExpenseData.length + ' expenses · ' + rev.length + ' revenue';
 
       var labels = pnl.map(function(d) { return d.label; });
       var chartOpts = { responsive: true, maintainAspectRatio: false, plugins: { legend: { labels: { color: '#a1a1aa' } } }, scales: { x: { ticks: { color: '#71717a' } }, y: { ticks: { color: '#71717a' } } } };
