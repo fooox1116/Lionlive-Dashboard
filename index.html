@@ -127,6 +127,14 @@
         <div class="toggle-buttons" id="buToggles"></div>
         <div class="chart-box"><canvas id="chart3"></canvas></div>
       </div>
+      <div class="card">
+        <div style="display:flex;justify-content:space-between;flex-wrap:wrap;gap:8px;margin-bottom:8px">
+          <h3 class="chart-title" style="margin:0">🏷️ Expense by Sub-Sub Category (Click to toggle)</h3>
+          <button class="btn btn-secondary" style="padding:6px 12px;font-size:12px" onclick="showAllSSC()">Show All</button>
+        </div>
+        <div class="toggle-buttons" id="sscToggles"></div>
+        <div class="chart-box"><canvas id="chart5"></canvas></div>
+      </div>
     </div>
 
     <!-- P&L Tab -->
@@ -176,6 +184,9 @@
     var selBUs = BUS.slice();
     var visCats = new Set(CATS);
     var visBUs = new Set(BUS);
+    var visSSC = new Set(); // Sub Sub Category visibility (will be populated from data)
+    var allSSC = []; // All sub sub categories found in data
+    var SSC_COLORS = ['#3B82F6', '#10B981', '#F59E0B', '#8B5CF6', '#EC4899', '#6366F1', '#14B8A6', '#F97316', '#06B6D4', '#84CC16', '#A855F7', '#EF4444'];
     var tab = 'overview';
     var pnlView = 'total';
     var charts = {};
@@ -245,6 +256,7 @@
                 date: item.Date || '',
                 category: category,
                 subCategory: subCategory,
+                subSubCategory: item["SUB SUB category"] || '',
                 item: item.Item || '',
                 inUSD: usdAmount
               });
@@ -358,6 +370,24 @@
         return '<button class="btn" style="background:' + (visBUs.has(b) ? BU_COL[b] : '#27272a') + ';color:' + (visBUs.has(b) ? '#fff' : '#71717a') + ';padding:6px 12px;font-size:12px" onclick="toggleBUC(\'' + b + '\')">' + (visBUs.has(b) ? '👁️' : '🚫') + ' ' + b + '</button>';
       }).join('');
 
+      // Collect all Sub Sub Categories from data
+      var sscSet = {};
+      processedExpenseData.forEach(function(d) {
+        if (d.subSubCategory && d.subSubCategory.trim()) {
+          sscSet[d.subSubCategory] = true;
+        }
+      });
+      allSSC = Object.keys(sscSet).sort();
+      // Initialize visSSC if empty
+      if (visSSC.size === 0 && allSSC.length > 0) {
+        visSSC = new Set(allSSC);
+      }
+      // Generate SSC toggles
+      document.getElementById('sscToggles').innerHTML = allSSC.map(function(s, i) {
+        var col = SSC_COLORS[i % SSC_COLORS.length];
+        return '<button class="btn" style="background:' + (visSSC.has(s) ? col : '#27272a') + ';color:' + (visSSC.has(s) ? '#fff' : '#71717a') + ';padding:6px 12px;font-size:12px" onclick="toggleSSC(\'' + s.replace(/'/g, "\\'") + '\')">' + (visSSC.has(s) ? '👁️' : '🚫') + ' ' + s + '</button>';
+      }).join('');
+
       document.getElementById('pnlTabs').innerHTML =
         '<button class="btn ' + (pnlView === 'total' ? 'btn-primary' : 'btn-secondary') + '" onclick="setPnl(\'total\')">Total</button>' +
         BUS3.map(function(b) { return '<button class="btn" style="background:' + (pnlView === b ? BU_COL[b] : '#27272a') + ';color:' + (pnlView === b ? '#fff' : '#a1a1aa') + '" onclick="setPnl(\'' + b + '\')">' + b + '</button>'; }).join('');
@@ -392,6 +422,13 @@
 
     function showAllBU() { visBUs = new Set(BUS); initUI(); updateAll(); }
 
+    function toggleSSC(s) {
+      if (visSSC.has(s)) visSSC.delete(s); else visSSC.add(s);
+      initUI(); updateAll();
+    }
+
+    function showAllSSC() { visSSC = new Set(allSSC); initUI(); updateAll(); }
+
     function switchTab(t) {
       tab = t;
       document.getElementById('overviewTab').className = t === 'overview' ? '' : 'hidden';
@@ -420,6 +457,11 @@
         return selBUs.indexOf(e.subCategory) !== -1;
       });
       
+      // For allocation: get ALL revenue (not just selected BUs) to calculate global ratios
+      var allRev = rev.filter(function(r) { 
+        return selYears.indexOf(r.year) !== -1; 
+      });
+      
       var fRev = rev.filter(function(r) { 
         return selYears.indexOf(r.year) !== -1 && selBUs.indexOf(r.businessUnit) !== -1; 
       });
@@ -435,12 +477,26 @@
             expSalary: 0, expAdmin: 0, expMarketing: 0, expCreatorIncentives: 0, expOfficeRent: 0, expOffline: 0,
             expLatam: 0, expOffice: 0, expGroup: 0, expUSA: 0,
             revLatam: 0, revGroup: 0, revUSA: 0,
+            // Track ALL BU revenue for allocation ratios (not filtered by selection)
+            allRevLatam: 0, allRevGroup: 0, allRevUSA: 0, allRevTotal: 0,
             // Office BU category breakdown for allocation
             offSalary: 0, offAdmin: 0, offMarketing: 0, offCreatorIncentives: 0, offOfficeRent: 0, offOffline: 0
           };
         }
       });
 
+      // First, calculate ALL revenue for allocation ratios
+      allRev.forEach(function(r) {
+        var k = r.year + '-' + r.month;
+        if (data[k]) {
+          data[k].allRevTotal += r.amount;
+          if (r.businessUnit === 'Latam agency') data[k].allRevLatam += r.amount;
+          if (r.businessUnit === 'Group live') data[k].allRevGroup += r.amount;
+          if (r.businessUnit === 'USA agency') data[k].allRevUSA += r.amount;
+        }
+      });
+
+      // Then, calculate filtered revenue for display
       fRev.forEach(function(r) {
         var k = r.year + '-' + r.month;
         if (data[k]) {
@@ -485,10 +541,11 @@
 
       Object.values(data).forEach(function(d) {
         d.net = d.rev - d.exp;
-        var tr = d.rev || 1;
-        d.allocLatam = alloc ? d.expOffice * (d.revLatam / tr) : 0;
-        d.allocGroup = alloc ? d.expOffice * (d.revGroup / tr) : 0;
-        d.allocUSA = alloc ? d.expOffice * (d.revUSA / tr) : 0;
+        // Use GLOBAL total revenue for allocation ratios, not selected BU revenue
+        var tr = d.allRevTotal || 1;
+        d.allocLatam = alloc ? d.expOffice * (d.allRevLatam / tr) : 0;
+        d.allocGroup = alloc ? d.expOffice * (d.allRevGroup / tr) : 0;
+        d.allocUSA = alloc ? d.expOffice * (d.allRevUSA / tr) : 0;
         d.netLatam = d.revLatam - d.expLatam - d.allocLatam;
         d.netGroup = d.revGroup - d.expGroup - d.allocGroup;
         d.netUSA = d.revUSA - d.expUSA - d.allocUSA;
@@ -517,7 +574,7 @@
         '<div class="card"><p class="kpi-label">📊 Net Profit</p><p class="kpi-value ' + (net >= 0 ? 'green' : 'red') + '">' + fmt(net) + '</p></div>' +
         '<div class="card"><p class="kpi-label">📈 Profit Margin</p><p class="kpi-value ' + (net >= 0 ? 'green' : 'red') + '">' + margin + '%</p></div>';
 
-      document.getElementById('footer').textContent = 'Financial Dashboard v7.7 · ' + processedExpenseData.length + ' expenses · ' + rev.length + ' revenue';
+      document.getElementById('footer').textContent = 'Financial Dashboard v7.8 · ' + processedExpenseData.length + ' expenses · ' + rev.length + ' revenue';
 
       var labels = pnl.map(function(d) { return d.label; });
       var chartOpts = { responsive: true, maintainAspectRatio: false, plugins: { legend: { labels: { color: '#a1a1aa' } } }, scales: { x: { ticks: { color: '#71717a' } }, y: { ticks: { color: '#71717a' } } } };
@@ -557,6 +614,40 @@
       if (visBUs.has('Group live')) buDS.push({ label: 'Group live', data: pnl.map(function(d) { return alloc ? d.expGroup + d.allocGroup : d.expGroup; }), backgroundColor: '#F59E0B', stack: 's' });
       if (visBUs.has('USA agency')) buDS.push({ label: 'USA agency', data: pnl.map(function(d) { return alloc ? d.expUSA + d.allocUSA : d.expUSA; }), backgroundColor: '#8B5CF6', stack: 's' });
       charts.c3 = new Chart(document.getElementById('chart3'), { type: 'bar', data: { labels: labels, datasets: buDS }, options: stackOpts });
+
+      // Chart 5: Expense by Sub Sub Category
+      if (charts.c5) charts.c5.destroy();
+      // Calculate SSC expenses per month
+      var sscData = {};
+      allSSC.forEach(function(s) { sscData[s] = {}; });
+      pnl.forEach(function(d) { allSSC.forEach(function(s) { sscData[s][d.k] = 0; }); });
+      
+      var adjustEarlyMonth = document.getElementById('adjustEarlyMonth').checked;
+      processedExpenseData.forEach(function(e) {
+        var y = adjustEarlyMonth ? e.adjustedYear : e.year;
+        var m = adjustEarlyMonth ? e.adjustedMonth : e.actualMonth;
+        if (selYears.indexOf(y) === -1) return;
+        if (selBUs.indexOf(e.subCategory) === -1 && e.subCategory !== 'Office') return;
+        if (alloc && e.subCategory === 'Office') return; // Skip Office when allocated
+        var k = y + '-' + m;
+        var ssc = e.subSubCategory || '';
+        if (ssc && sscData[ssc] && sscData[ssc][k] !== undefined) {
+          sscData[ssc][k] += e.inUSD;
+        }
+      });
+      
+      var sscDS = [];
+      allSSC.forEach(function(s, i) {
+        if (visSSC.has(s)) {
+          sscDS.push({
+            label: s,
+            data: pnl.map(function(d) { return sscData[s][d.k] || 0; }),
+            backgroundColor: SSC_COLORS[i % SSC_COLORS.length],
+            stack: 's'
+          });
+        }
+      });
+      charts.c5 = new Chart(document.getElementById('chart5'), { type: 'bar', data: { labels: labels, datasets: sscDS }, options: stackOpts });
 
       // P&L Tab
       if (pnlView !== 'total') {
