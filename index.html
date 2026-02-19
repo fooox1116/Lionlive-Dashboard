@@ -162,7 +162,7 @@
   <script>
     // ============ CONFIG ============
     var EXPENSE_API_URL = 'https://script.google.com/macros/s/AKfycbxw-1lNdVQAzCPVfYhPUkbifKceJqgx05-AZbkobLwgH420nxep2pv1YAhSyciPlLz2hg/exec';
-    var REVENUE_API_URL = 'https://script.google.com/macros/s/AKfycbwNCks_W4-1qr4Drk5rEvB-4cIQGwpu3SLo5Q5gQ8H9YoltCMbBZsj6tPvbWKZNIPXz/exec';
+    var REVENUE_API_URL = 'https://script.google.com/macros/s/AKfycbxLODYZxh7cBGjo41iloOSaDIonb6v4NfC5ZqM0Jdlz33PkHXgYMJZktqN9_-dKuYmu/exec';
 
     // ============ CONSTANTS ============
     var CATS = ['Salary', 'Admin', 'Marketing', 'Creator Incentives', 'Office Rent', 'Offline'];
@@ -187,7 +187,15 @@
     // ============ HELPER: Extract Year from Date ============
     function extractYearFromDate(dateStr) {
       if (!dateStr) return 2025;
-      // Handle ISO date format: "2025-05-14T16:00:00.000Z"
+      // Parse ISO date and convert to local time to get correct year
+      // Google Sheets returns UTC time, so "2026-01-01 00:00 HKT" becomes "2025-12-31T16:00:00.000Z"
+      try {
+        var d = new Date(dateStr);
+        if (!isNaN(d.getTime())) {
+          return d.getFullYear(); // This returns LOCAL year
+        }
+      } catch(e) {}
+      // Fallback: extract from string
       var match = String(dateStr).match(/^(\d{4})/);
       if (match) return parseInt(match[1]);
       return 2025;
@@ -196,7 +204,14 @@
     // ============ HELPER: Extract Day from Date ============
     function extractDayFromDate(dateStr) {
       if (!dateStr) return 15;
-      // Handle ISO date format: "2025-05-14T16:00:00.000Z"
+      // Parse ISO date and convert to local time to get correct day
+      try {
+        var d = new Date(dateStr);
+        if (!isNaN(d.getTime())) {
+          return d.getDate(); // This returns LOCAL day
+        }
+      } catch(e) {}
+      // Fallback: extract from string
       var match = String(dateStr).match(/^\d{4}-\d{2}-(\d{2})/);
       if (match) return parseInt(match[1]);
       return 15;
@@ -566,7 +581,7 @@
         '<div class="card"><p class="kpi-label">📊 Net Profit</p><p class="kpi-value ' + (net >= 0 ? 'green' : 'red') + '">' + fmt(net) + '</p></div>' +
         '<div class="card"><p class="kpi-label">📈 Profit Margin</p><p class="kpi-value ' + (net >= 0 ? 'green' : 'red') + '">' + margin + '%</p></div>';
 
-      document.getElementById('footer').textContent = 'Financial Dashboard v7.3 · ' + processedExpenseData.length + ' expenses · ' + rev.length + ' revenue';
+      document.getElementById('footer').textContent = 'Financial Dashboard v7.5 · ' + processedExpenseData.length + ' expenses · ' + rev.length + ' revenue';
 
       var labels = pnl.map(function(d) { return d.label; });
       var chartOpts = { responsive: true, maintainAspectRatio: false, plugins: { legend: { labels: { color: '#a1a1aa' } } }, scales: { x: { ticks: { color: '#71717a' } }, y: { ticks: { color: '#71717a' } } } };
@@ -598,13 +613,14 @@
       if (visCats.has('Offline')) catDS.push({ label: 'Offline', data: pnl.map(function(d) { return d.expOffline; }), backgroundColor: '#6366F1', stack: 's' });
       charts.c2 = new Chart(document.getElementById('chart2'), { type: 'bar', data: { labels: labels, datasets: catDS }, options: stackOpts });
 
-      // Chart 3: Expense by BU
+      // Chart 3: Expense by BU (affected by Allocate Office setting)
       if (charts.c3) charts.c3.destroy();
       var buDS = [];
-      if (visBUs.has('Latam agency')) buDS.push({ label: 'Latam agency', data: pnl.map(function(d) { return d.expLatam; }), backgroundColor: '#3B82F6', stack: 's' });
-      if (visBUs.has('Office')) buDS.push({ label: 'Office', data: pnl.map(function(d) { return d.expOffice; }), backgroundColor: '#10B981', stack: 's' });
-      if (visBUs.has('Group live')) buDS.push({ label: 'Group live', data: pnl.map(function(d) { return d.expGroup; }), backgroundColor: '#F59E0B', stack: 's' });
-      if (visBUs.has('USA agency')) buDS.push({ label: 'USA agency', data: pnl.map(function(d) { return d.expUSA; }), backgroundColor: '#8B5CF6', stack: 's' });
+      var allocOffice = document.getElementById('allocateOffice').checked;
+      if (visBUs.has('Latam agency')) buDS.push({ label: 'Latam agency', data: pnl.map(function(d) { return allocOffice ? d.expLatam + d.allocLatam : d.expLatam; }), backgroundColor: '#3B82F6', stack: 's' });
+      if (visBUs.has('Office') && !allocOffice) buDS.push({ label: 'Office', data: pnl.map(function(d) { return d.expOffice; }), backgroundColor: '#10B981', stack: 's' });
+      if (visBUs.has('Group live')) buDS.push({ label: 'Group live', data: pnl.map(function(d) { return allocOffice ? d.expGroup + d.allocGroup : d.expGroup; }), backgroundColor: '#F59E0B', stack: 's' });
+      if (visBUs.has('USA agency')) buDS.push({ label: 'USA agency', data: pnl.map(function(d) { return allocOffice ? d.expUSA + d.allocUSA : d.expUSA; }), backgroundColor: '#8B5CF6', stack: 's' });
       charts.c3 = new Chart(document.getElementById('chart3'), { type: 'bar', data: { labels: labels, datasets: buDS }, options: stackOpts });
 
       // P&L Tab
