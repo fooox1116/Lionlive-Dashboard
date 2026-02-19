@@ -41,10 +41,6 @@
     .info-blue { background: rgba(59,130,246,0.1); border: 1px solid rgba(59,130,246,0.3); color: #60a5fa; }
     .info-yellow { background: rgba(245,158,11,0.1); border: 1px solid rgba(245,158,11,0.3); color: #fbbf24; }
     .info-green { background: rgba(16,185,129,0.1); border: 1px solid rgba(16,185,129,0.3); color: #34d399; }
-    .form-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 16px; }
-    .form-group label { display: block; font-size: 13px; color: #a1a1aa; margin-bottom: 4px; }
-    .form-group input, .form-group select { width: 100%; padding: 8px; border-radius: 6px; border: 1px solid #27272a; background: #09090b; color: #fff; }
-    .form-actions { margin-top: 16px; display: flex; gap: 8px; }
     .hidden { display: none !important; }
     .checkbox-group { display: flex; flex-direction: column; gap: 8px; }
     .checkbox-label { display: flex; align-items: center; gap: 8px; cursor: pointer; font-size: 13px; }
@@ -162,7 +158,7 @@
   <script>
     // ============ CONFIG ============
     var EXPENSE_API_URL = 'https://script.google.com/macros/s/AKfycbxw-1lNdVQAzCPVfYhPUkbifKceJqgx05-AZbkobLwgH420nxep2pv1YAhSyciPlLz2hg/exec';
-    var REVENUE_API_URL = 'https://script.google.com/macros/s/AKfycbxLODYZxh7cBGjo41iloOSaDIonb6v4NfC5ZqM0Jdlz33PkHXgYMJZktqN9_-dKuYmu/exec';
+    var REVENUE_API_URL = 'https://script.google.com/macros/s/AKfycbx_B12Xt5OW-Py5W3hVkehyLv62lABfaDW7IgpzbbmAQhnLWFGkqzjM4f-38ynBaO1U/exec';
 
     // ============ CONSTANTS ============
     var CATS = ['Salary', 'Admin', 'Marketing', 'Creator Incentives', 'Office Rent', 'Offline'];
@@ -175,8 +171,8 @@
     // ============ STATE ============
     var rawExpenseData = [];
     var processedExpenseData = [];
-    var rev = []; // Will be loaded from Google Sheets API
-    var selYears = [2025];
+    var rev = [];
+    var selYears = [2025, 2026];
     var selBUs = BUS.slice();
     var visCats = new Set(CATS);
     var visBUs = new Set(BUS);
@@ -184,34 +180,25 @@
     var pnlView = 'total';
     var charts = {};
 
-    // ============ HELPER: Extract Year from Date ============
+    // ============ HELPER: Extract Year from Date (with timezone fix) ============
     function extractYearFromDate(dateStr) {
       if (!dateStr) return 2025;
-      // Parse ISO date and convert to local time to get correct year
-      // Google Sheets returns UTC time, so "2026-01-01 00:00 HKT" becomes "2025-12-31T16:00:00.000Z"
       try {
         var d = new Date(dateStr);
-        if (!isNaN(d.getTime())) {
-          return d.getFullYear(); // This returns LOCAL year
-        }
+        if (!isNaN(d.getTime())) return d.getFullYear();
       } catch(e) {}
-      // Fallback: extract from string
       var match = String(dateStr).match(/^(\d{4})/);
       if (match) return parseInt(match[1]);
       return 2025;
     }
 
-    // ============ HELPER: Extract Day from Date ============
+    // ============ HELPER: Extract Day from Date (with timezone fix) ============
     function extractDayFromDate(dateStr) {
       if (!dateStr) return 15;
-      // Parse ISO date and convert to local time to get correct day
       try {
         var d = new Date(dateStr);
-        if (!isNaN(d.getTime())) {
-          return d.getDate(); // This returns LOCAL day
-        }
+        if (!isNaN(d.getTime())) return d.getDate();
       } catch(e) {}
-      // Fallback: extract from string
       var match = String(dateStr).match(/^\d{4}-\d{2}-(\d{2})/);
       if (match) return parseInt(match[1]);
       return 15;
@@ -219,23 +206,12 @@
 
     // ============ HELPER: Get USD value safely ============
     function getUSDValue(item) {
-      // ONLY use "In USD" column, NEVER fall back to Total Expense
       var usdValue = item["In USD"];
-      
-      // Handle number type
-      if (typeof usdValue === 'number' && !isNaN(usdValue) && usdValue > 0) {
-        return usdValue;
-      }
-      
-      // Handle string type
+      if (typeof usdValue === 'number' && !isNaN(usdValue) && usdValue > 0) return usdValue;
       if (typeof usdValue === 'string') {
         var parsed = parseFloat(usdValue);
-        if (!isNaN(parsed) && parsed > 0) {
-          return parsed;
-        }
+        if (!isNaN(parsed) && parsed > 0) return parsed;
       }
-      
-      // If no valid USD value, return 0 (skip this row)
       return 0;
     }
 
@@ -244,7 +220,6 @@
       document.getElementById('loading').className = 'loading';
       document.getElementById('app').className = 'container hidden';
 
-      // Fetch both expense and revenue data in parallel
       Promise.all([
         fetch(EXPENSE_API_URL).then(function(r) { return r.json(); }),
         fetch(REVENUE_API_URL).then(function(r) { return r.json(); })
@@ -253,27 +228,17 @@
           var expenseData = results[0];
           var revenueData = results[1];
           
-          // Process Expenses
           var expenses = expenseData.expenses || [];
-          console.log('Expense API returned', expenses.length, 'rows');
-          
           if (expenses.length > 0) {
             var totalUSD = 0;
-            var skippedRows = 0;
-            
             rawExpenseData = [];
-            
             expenses.forEach(function(item) {
               var usdAmount = getUSDValue(item);
               var category = item.Category || '';
               var subCategory = item["Sub-category"] || '';
               var year = extractYearFromDate(item.Date);
-              
-              if (usdAmount <= 0) { skippedRows++; return; }
-              if (!category || !subCategory) { skippedRows++; return; }
-              
+              if (usdAmount <= 0 || !category || !subCategory) return;
               totalUSD += usdAmount;
-              
               rawExpenseData.push({
                 actualMonth: parseInt(item["Actual Month"]) || 1,
                 year: year,
@@ -284,19 +249,13 @@
                 inUSD: usdAmount
               });
             });
-            
-            console.log('Processed', rawExpenseData.length, 'expense rows, Total: $' + totalUSD.toFixed(2));
             document.getElementById('debugInfo').textContent = rawExpenseData.length + ' expenses, $' + totalUSD.toFixed(2);
           }
           
-          // Process Revenue
           var revenueItems = revenueData.revenue || [];
-          console.log('Revenue API returned', revenueItems.length, 'rows');
-          
           if (revenueItems.length > 0) {
             var totalRev = 0;
             rev = [];
-            
             revenueItems.forEach(function(item, idx) {
               var amount = parseFloat(item.amount) || 0;
               if (amount > 0) {
@@ -306,13 +265,10 @@
                   year: parseInt(item.year) || 2025,
                   month: parseInt(item.month) || 1,
                   businessUnit: item.businessUnit || 'Latam agency',
-                  amount: amount,
-                  description: 'From Google Sheets'
+                  amount: amount
                 });
               }
             });
-            
-            console.log('Processed', rev.length, 'revenue rows, Total: $' + totalRev.toFixed(2));
             document.getElementById('debugInfo').textContent += ' | ' + rev.length + ' revenue, $' + totalRev.toFixed(2);
           }
           
@@ -322,10 +278,9 @@
           finishLoading();
         })
         .catch(function(err) {
-          console.log('API Error:', err);
           document.getElementById('dataSource').textContent = '⚠️ API Error';
           document.getElementById('dataSource').style.color = '#F59E0B';
-          document.getElementById('errorBox').textContent = '⚠️ Could not connect to Google Sheets: ' + err.message;
+          document.getElementById('errorBox').textContent = '⚠️ Could not connect: ' + err.message;
           document.getElementById('errorBox').className = 'info-box info-yellow';
           rawExpenseData = [];
           rev = [];
@@ -348,20 +303,15 @@
 
       processedExpenseData = rawExpenseData.map(function(item) {
         var processed = Object.assign({}, item);
-
-        // Merge Freelancer to Salary
         if (mergeFreelancer && item.item) {
           var itemLower = item.item.toLowerCase();
           if (itemLower.indexOf('freelancer') !== -1 || itemLower.indexOf('freelance') !== -1) {
             processed.category = 'Salary';
           }
         }
-
-        // Adjust early month payments (days 1-6)
         if (adjustEarlyMonth && item.date) {
           var day = extractDayFromDate(item.date);
           var isSalaryOrCreator = processed.category === 'Salary' || processed.category === 'Creator Incentives';
-
           if (day >= 1 && day <= 6 && isSalaryOrCreator) {
             processed.adjustedMonth = item.actualMonth - 1;
             processed.adjustedYear = item.year;
@@ -377,7 +327,6 @@
           processed.adjustedMonth = item.actualMonth;
           processed.adjustedYear = item.year;
         }
-
         return processed;
       });
     }
@@ -390,15 +339,8 @@
         var y = adjustEarlyMonth ? d.adjustedYear : d.year;
         if (years.indexOf(y) === -1 && y > 2000) years.push(y);
       });
-      rev.forEach(function(r) {
-        if (years.indexOf(r.year) === -1) years.push(r.year);
-      });
+      rev.forEach(function(r) { if (years.indexOf(r.year) === -1) years.push(r.year); });
       years.sort();
-      
-      // Default to most recent year if no selection
-      if (years.length > 0 && selYears.length === 0) {
-        selYears = [years[years.length - 1]];
-      }
 
       document.getElementById('yearFilters').innerHTML = years.map(function(y) {
         return '<button class="btn ' + (selYears.indexOf(y) !== -1 ? 'btn-primary' : 'btn-secondary') + '" onclick="toggleYear(' + y + ')">' + y + '</button>';
@@ -424,51 +366,31 @@
     // ============ FILTER FUNCTIONS ============
     function toggleYear(y) {
       var idx = selYears.indexOf(y);
-      if (idx !== -1) {
-        if (selYears.length > 1) selYears.splice(idx, 1);
-      } else {
-        selYears.push(y);
-      }
-      initUI();
-      updateAll();
+      if (idx !== -1) { if (selYears.length > 1) selYears.splice(idx, 1); }
+      else { selYears.push(y); }
+      initUI(); updateAll();
     }
 
     function toggleBU(b) {
       var idx = selBUs.indexOf(b);
-      if (idx !== -1) {
-        if (selBUs.length > 1) selBUs.splice(idx, 1);
-      } else {
-        selBUs.push(b);
-      }
-      initUI();
-      updateAll();
+      if (idx !== -1) { if (selBUs.length > 1) selBUs.splice(idx, 1); }
+      else { selBUs.push(b); }
+      initUI(); updateAll();
     }
 
     function toggleCat(c) {
-      if (visCats.has(c)) visCats.delete(c);
-      else visCats.add(c);
-      initUI();
-      updateAll();
+      if (visCats.has(c)) visCats.delete(c); else visCats.add(c);
+      initUI(); updateAll();
     }
 
-    function showAllCat() {
-      visCats = new Set(CATS);
-      initUI();
-      updateAll();
-    }
+    function showAllCat() { visCats = new Set(CATS); initUI(); updateAll(); }
 
     function toggleBUC(b) {
-      if (visBUs.has(b)) visBUs.delete(b);
-      else visBUs.add(b);
-      initUI();
-      updateAll();
+      if (visBUs.has(b)) visBUs.delete(b); else visBUs.add(b);
+      initUI(); updateAll();
     }
 
-    function showAllBU() {
-      visBUs = new Set(BUS);
-      initUI();
-      updateAll();
-    }
+    function showAllBU() { visBUs = new Set(BUS); initUI(); updateAll(); }
 
     function switchTab(t) {
       tab = t;
@@ -481,23 +403,27 @@
       updateAll();
     }
 
-    function setPnl(v) {
-      pnlView = v;
-      initUI();
-      updateAll();
-    }
+    function setPnl(v) { pnlView = v; initUI(); updateAll(); }
 
     // ============ CALCULATIONS ============
     function calcData() {
       var adjustEarlyMonth = document.getElementById('adjustEarlyMonth').checked;
+      var alloc = document.getElementById('allocateOffice').checked;
+      
+      // Filter expenses: if allocate is on, always include Office BU for allocation
       var fExp = processedExpenseData.filter(function(e) {
         var y = adjustEarlyMonth ? e.adjustedYear : e.year;
-        return selYears.indexOf(y) !== -1 && selBUs.indexOf(e.subCategory) !== -1;
+        if (selYears.indexOf(y) === -1) return false;
+        if (alloc) {
+          return selBUs.indexOf(e.subCategory) !== -1 || e.subCategory === 'Office';
+        }
+        return selBUs.indexOf(e.subCategory) !== -1;
       });
+      
       var fRev = rev.filter(function(r) { 
         return selYears.indexOf(r.year) !== -1 && selBUs.indexOf(r.businessUnit) !== -1; 
       });
-      var alloc = document.getElementById('allocateOffice').checked;
+      
       var data = {};
 
       selYears.forEach(function(y) {
@@ -508,7 +434,9 @@
             rev: 0, exp: 0,
             expSalary: 0, expAdmin: 0, expMarketing: 0, expCreatorIncentives: 0, expOfficeRent: 0, expOffline: 0,
             expLatam: 0, expOffice: 0, expGroup: 0, expUSA: 0,
-            revLatam: 0, revGroup: 0, revUSA: 0
+            revLatam: 0, revGroup: 0, revUSA: 0,
+            // Office BU category breakdown for allocation
+            offSalary: 0, offAdmin: 0, offMarketing: 0, offCreatorIncentives: 0, offOfficeRent: 0, offOffline: 0
           };
         }
       });
@@ -529,16 +457,29 @@
         var k = y + '-' + m;
         if (data[k]) {
           data[k].exp += i.inUSD;
-          if (i.category === 'Salary') data[k].expSalary += i.inUSD;
-          if (i.category === 'Admin') data[k].expAdmin += i.inUSD;
-          if (i.category === 'Marketing') data[k].expMarketing += i.inUSD;
-          if (i.category === 'Creator Incentives') data[k].expCreatorIncentives += i.inUSD;
-          if (i.category === 'Office Rent') data[k].expOfficeRent += i.inUSD;
-          if (i.category === 'Offline') data[k].expOffline += i.inUSD;
+          
+          // Track Office BU expenses by category separately
+          if (i.subCategory === 'Office') {
+            data[k].expOffice += i.inUSD;
+            if (i.category === 'Salary') data[k].offSalary += i.inUSD;
+            else if (i.category === 'Admin') data[k].offAdmin += i.inUSD;
+            else if (i.category === 'Marketing') data[k].offMarketing += i.inUSD;
+            else if (i.category === 'Creator Incentives') data[k].offCreatorIncentives += i.inUSD;
+            else if (i.category === 'Office Rent') data[k].offOfficeRent += i.inUSD;
+            else if (i.category === 'Offline') data[k].offOffline += i.inUSD;
+          } else {
+            // Non-Office BU expenses
+            if (i.category === 'Salary') data[k].expSalary += i.inUSD;
+            else if (i.category === 'Admin') data[k].expAdmin += i.inUSD;
+            else if (i.category === 'Marketing') data[k].expMarketing += i.inUSD;
+            else if (i.category === 'Creator Incentives') data[k].expCreatorIncentives += i.inUSD;
+            else if (i.category === 'Office Rent') data[k].expOfficeRent += i.inUSD;
+            else if (i.category === 'Offline') data[k].expOffline += i.inUSD;
+          }
+          
           if (i.subCategory === 'Latam agency') data[k].expLatam += i.inUSD;
-          if (i.subCategory === 'Office') data[k].expOffice += i.inUSD;
-          if (i.subCategory === 'Group live') data[k].expGroup += i.inUSD;
-          if (i.subCategory === 'USA agency') data[k].expUSA += i.inUSD;
+          else if (i.subCategory === 'Group live') data[k].expGroup += i.inUSD;
+          else if (i.subCategory === 'USA agency') data[k].expUSA += i.inUSD;
         }
       });
 
@@ -561,16 +502,11 @@
     // ============ UPDATE ALL ============
     function updateAll() {
       var adjustEarlyMonth = document.getElementById('adjustEarlyMonth').checked;
+      var alloc = document.getElementById('allocateOffice').checked;
       var pnl = calcData();
-      var fExp = processedExpenseData.filter(function(e) {
-        var y = adjustEarlyMonth ? e.adjustedYear : e.year;
-        return selYears.indexOf(y) !== -1 && selBUs.indexOf(e.subCategory) !== -1;
-      });
-      var fRev = rev.filter(function(r) { 
-        return selYears.indexOf(r.year) !== -1 && selBUs.indexOf(r.businessUnit) !== -1; 
-      });
-      var tRev = fRev.reduce(function(s, r) { return s + r.amount; }, 0);
-      var tExp = fExp.reduce(function(s, e) { return s + e.inUSD; }, 0);
+      
+      var tRev = pnl.reduce(function(s, d) { return s + d.rev; }, 0);
+      var tExp = pnl.reduce(function(s, d) { return s + d.exp; }, 0);
       var net = tRev - tExp;
       var margin = tRev > 0 ? (net / tRev * 100).toFixed(1) : 0;
 
@@ -581,7 +517,7 @@
         '<div class="card"><p class="kpi-label">📊 Net Profit</p><p class="kpi-value ' + (net >= 0 ? 'green' : 'red') + '">' + fmt(net) + '</p></div>' +
         '<div class="card"><p class="kpi-label">📈 Profit Margin</p><p class="kpi-value ' + (net >= 0 ? 'green' : 'red') + '">' + margin + '%</p></div>';
 
-      document.getElementById('footer').textContent = 'Financial Dashboard v7.5 · ' + processedExpenseData.length + ' expenses · ' + rev.length + ' revenue';
+      document.getElementById('footer').textContent = 'Financial Dashboard v7.6 · ' + processedExpenseData.length + ' expenses · ' + rev.length + ' revenue';
 
       var labels = pnl.map(function(d) { return d.label; });
       var chartOpts = { responsive: true, maintainAspectRatio: false, plugins: { legend: { labels: { color: '#a1a1aa' } } }, scales: { x: { ticks: { color: '#71717a' } }, y: { ticks: { color: '#71717a' } } } };
@@ -602,32 +538,30 @@
         options: chartOpts
       });
 
-      // Chart 2: Expense by Category
+      // Chart 2: Expense by Category (when alloc on, add Office's category expenses)
       if (charts.c2) charts.c2.destroy();
       var catDS = [];
-      if (visCats.has('Salary')) catDS.push({ label: 'Salary', data: pnl.map(function(d) { return d.expSalary; }), backgroundColor: '#3B82F6', stack: 's' });
-      if (visCats.has('Admin')) catDS.push({ label: 'Admin', data: pnl.map(function(d) { return d.expAdmin; }), backgroundColor: '#10B981', stack: 's' });
-      if (visCats.has('Marketing')) catDS.push({ label: 'Marketing', data: pnl.map(function(d) { return d.expMarketing; }), backgroundColor: '#F59E0B', stack: 's' });
-      if (visCats.has('Creator Incentives')) catDS.push({ label: 'Creator Incentives', data: pnl.map(function(d) { return d.expCreatorIncentives; }), backgroundColor: '#8B5CF6', stack: 's' });
-      if (visCats.has('Office Rent')) catDS.push({ label: 'Office Rent', data: pnl.map(function(d) { return d.expOfficeRent; }), backgroundColor: '#EC4899', stack: 's' });
-      if (visCats.has('Offline')) catDS.push({ label: 'Offline', data: pnl.map(function(d) { return d.expOffline; }), backgroundColor: '#6366F1', stack: 's' });
+      if (visCats.has('Salary')) catDS.push({ label: 'Salary', data: pnl.map(function(d) { return alloc ? d.expSalary + d.offSalary : d.expSalary; }), backgroundColor: '#3B82F6', stack: 's' });
+      if (visCats.has('Admin')) catDS.push({ label: 'Admin', data: pnl.map(function(d) { return alloc ? d.expAdmin + d.offAdmin : d.expAdmin; }), backgroundColor: '#10B981', stack: 's' });
+      if (visCats.has('Marketing')) catDS.push({ label: 'Marketing', data: pnl.map(function(d) { return alloc ? d.expMarketing + d.offMarketing : d.expMarketing; }), backgroundColor: '#F59E0B', stack: 's' });
+      if (visCats.has('Creator Incentives')) catDS.push({ label: 'Creator Incentives', data: pnl.map(function(d) { return alloc ? d.expCreatorIncentives + d.offCreatorIncentives : d.expCreatorIncentives; }), backgroundColor: '#8B5CF6', stack: 's' });
+      if (visCats.has('Office Rent')) catDS.push({ label: 'Office Rent', data: pnl.map(function(d) { return alloc ? d.expOfficeRent + d.offOfficeRent : d.expOfficeRent; }), backgroundColor: '#EC4899', stack: 's' });
+      if (visCats.has('Offline')) catDS.push({ label: 'Offline', data: pnl.map(function(d) { return alloc ? d.expOffline + d.offOffline : d.expOffline; }), backgroundColor: '#6366F1', stack: 's' });
       charts.c2 = new Chart(document.getElementById('chart2'), { type: 'bar', data: { labels: labels, datasets: catDS }, options: stackOpts });
 
-      // Chart 3: Expense by BU (affected by Allocate Office setting)
+      // Chart 3: Expense by BU (when alloc on, hide Office and add to others)
       if (charts.c3) charts.c3.destroy();
       var buDS = [];
-      var allocOffice = document.getElementById('allocateOffice').checked;
-      if (visBUs.has('Latam agency')) buDS.push({ label: 'Latam agency', data: pnl.map(function(d) { return allocOffice ? d.expLatam + d.allocLatam : d.expLatam; }), backgroundColor: '#3B82F6', stack: 's' });
-      if (visBUs.has('Office') && !allocOffice) buDS.push({ label: 'Office', data: pnl.map(function(d) { return d.expOffice; }), backgroundColor: '#10B981', stack: 's' });
-      if (visBUs.has('Group live')) buDS.push({ label: 'Group live', data: pnl.map(function(d) { return allocOffice ? d.expGroup + d.allocGroup : d.expGroup; }), backgroundColor: '#F59E0B', stack: 's' });
-      if (visBUs.has('USA agency')) buDS.push({ label: 'USA agency', data: pnl.map(function(d) { return allocOffice ? d.expUSA + d.allocUSA : d.expUSA; }), backgroundColor: '#8B5CF6', stack: 's' });
+      if (visBUs.has('Latam agency')) buDS.push({ label: 'Latam agency', data: pnl.map(function(d) { return alloc ? d.expLatam + d.allocLatam : d.expLatam; }), backgroundColor: '#3B82F6', stack: 's' });
+      if (visBUs.has('Office') && !alloc) buDS.push({ label: 'Office', data: pnl.map(function(d) { return d.expOffice; }), backgroundColor: '#10B981', stack: 's' });
+      if (visBUs.has('Group live')) buDS.push({ label: 'Group live', data: pnl.map(function(d) { return alloc ? d.expGroup + d.allocGroup : d.expGroup; }), backgroundColor: '#F59E0B', stack: 's' });
+      if (visBUs.has('USA agency')) buDS.push({ label: 'USA agency', data: pnl.map(function(d) { return alloc ? d.expUSA + d.allocUSA : d.expUSA; }), backgroundColor: '#8B5CF6', stack: 's' });
       charts.c3 = new Chart(document.getElementById('chart3'), { type: 'bar', data: { labels: labels, datasets: buDS }, options: stackOpts });
 
       // P&L Tab
-      var alloc = document.getElementById('allocateOffice').checked;
       if (pnlView !== 'total') {
         document.getElementById('pnlInfo').className = 'info-box ' + (alloc ? 'info-yellow' : 'info-blue');
-        document.getElementById('pnlInfo').textContent = alloc ? 'ℹ️ Office expenses are allocated proportionally based on revenue share.' : 'ℹ️ Office expenses are NOT included in BU calculations. Enable "Allocate Office expenses to BUs" above.';
+        document.getElementById('pnlInfo').textContent = alloc ? 'ℹ️ Office expenses allocated by revenue share.' : 'ℹ️ Office expenses NOT included. Enable allocation above.';
       } else {
         document.getElementById('pnlInfo').className = 'info-box hidden';
       }
@@ -647,27 +581,29 @@
 
       // Chart 4: P&L Trend
       if (charts.c4) charts.c4.destroy();
-      var rk = 'rev', ek = 'exp', nk = 'net';
-      if (pnlView === 'Latam agency') { rk = 'revLatam'; ek = 'expLatam'; nk = 'netLatam'; }
-      else if (pnlView === 'Group live') { rk = 'revGroup'; ek = 'expGroup'; nk = 'netGroup'; }
-      else if (pnlView === 'USA agency') { rk = 'revUSA'; ek = 'expUSA'; nk = 'netUSA'; }
+      var rk = 'rev', nk = 'net';
+      var getExp = function(d) { return d.exp; };
+      if (pnlView === 'Latam agency') { rk = 'revLatam'; nk = 'netLatam'; getExp = function(d) { return d.expLatam + d.allocLatam; }; }
+      else if (pnlView === 'Group live') { rk = 'revGroup'; nk = 'netGroup'; getExp = function(d) { return d.expGroup + d.allocGroup; }; }
+      else if (pnlView === 'USA agency') { rk = 'revUSA'; nk = 'netUSA'; getExp = function(d) { return d.expUSA + d.allocUSA; }; }
+      
       charts.c4 = new Chart(document.getElementById('chart4'), {
         type: 'bar',
         data: {
           labels: labels,
           datasets: [
             { label: 'Revenue', data: pnl.map(function(d) { return d[rk]; }), backgroundColor: '#10B981' },
-            { label: 'Expense', data: pnl.map(function(d) { return d[ek]; }), backgroundColor: '#EF4444' },
+            { label: 'Expense', data: pnl.map(getExp), backgroundColor: '#EF4444' },
             { label: 'Net Profit', data: pnl.map(function(d) { return d[nk]; }), type: 'line', borderColor: '#3B82F6', borderWidth: 2, fill: false, pointRadius: 4 }
           ]
         },
         options: chartOpts
       });
 
-      // Revenue Table (read-only, data from Google Sheets)
+      // Revenue Table
       var rt = '<thead><tr><th>Period</th><th>Business Unit</th><th class="text-right">Amount (USD)</th></tr></thead><tbody>';
       rev.slice().sort(function(a, b) { return b.year - a.year || b.month - a.month; }).forEach(function(r) {
-        rt += '<tr><td>' + MO[r.month] + ' ' + r.year + '</td><td><span class="badge" style="background:' + BU_COL[r.businessUnit] + '">' + r.businessUnit + '</span></td><td class="text-right green" style="font-weight:600">$' + r.amount.toLocaleString('en-US', {minimumFractionDigits: 0, maximumFractionDigits: 0}) + '</td></tr>';
+        rt += '<tr><td>' + MO[r.month] + ' ' + r.year + '</td><td><span class="badge" style="background:' + BU_COL[r.businessUnit] + '">' + r.businessUnit + '</span></td><td class="text-right green" style="font-weight:600">$' + r.amount.toLocaleString('en-US', {maximumFractionDigits: 0}) + '</td></tr>';
       });
       rt += '</tbody>';
       document.getElementById('revTable').innerHTML = rt;
