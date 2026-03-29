@@ -48,6 +48,12 @@
     .spinner { font-size: 48px; animation: spin 1s linear infinite; }
     @keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
     .debug-info { font-size: 11px; color: #52525b; margin-top: 4px; }
+    .modal { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.8); display: flex; align-items: center; justify-content: center; z-index: 1000; }
+    .modal-content { background: #18181b; border: 1px solid #3f3f46; border-radius: 12px; padding: 24px; max-width: 400px; width: 90%; }
+    .summary-box { background: #27272a; border-radius: 8px; padding: 16px; margin-bottom: 16px; }
+    .summary-row { display: flex; justify-content: space-between; padding: 8px 0; border-bottom: 1px solid #3f3f46; }
+    .summary-row:last-child { border-bottom: none; }
+    .partner-badge { padding: 4px 12px; border-radius: 4px; font-size: 12px; font-weight: 500; }
   </style>
 </head>
 <body>
@@ -75,6 +81,20 @@
       <button class="btn btn-primary" id="tabOverview" onclick="switchTab('overview')">📈 Overview</button>
       <button class="btn btn-secondary" id="tabPnl" onclick="switchTab('pnl')">💰 P&L</button>
       <button class="btn btn-secondary" id="tabRevenue" onclick="switchTab('revenue')">💵 Revenue</button>
+      <button class="btn btn-secondary" id="tabRecon" onclick="switchTab('recon')">🔒 对账</button>
+    </div>
+
+    <!-- Password Modal -->
+    <div id="passwordModal" class="modal hidden">
+      <div class="modal-content">
+        <h3 style="margin-bottom:16px;font-size:18px">🔐 请输入密码</h3>
+        <input type="password" id="passwordInput" placeholder="Password" style="width:100%;padding:12px;border-radius:8px;border:1px solid #3f3f46;background:#27272a;color:#fff;margin-bottom:16px" onkeypress="if(event.key==='Enter')checkPassword()">
+        <div style="display:flex;gap:8px;justify-content:flex-end">
+          <button class="btn btn-secondary" onclick="closePasswordModal()">取消</button>
+          <button class="btn btn-primary" onclick="checkPassword()">确认</button>
+        </div>
+        <p id="passwordError" class="hidden" style="color:#EF4444;font-size:13px;margin-top:12px">密码错误，请重试</p>
+      </div>
     </div>
 
     <div class="card">
@@ -160,6 +180,97 @@
       <div class="card" style="overflow:auto"><table id="revTable"></table></div>
     </div>
 
+    <!-- Reconciliation Tab (对账) -->
+    <div id="reconTab" class="hidden">
+      <div style="display:flex;justify-content:space-between;margin-bottom:16px;flex-wrap:wrap;gap:8px">
+        <h3 style="font-size:18px;font-weight:600">📋 股东对账 Shareholder Reconciliation</h3>
+        <div>
+          <span id="reconLastUpdate" style="font-size:12px;color:#71717a;margin-right:16px"></span>
+          <button id="reconRefreshBtn" class="btn btn-secondary" onclick="fetchReconData()">🔄 刷新</button>
+        </div>
+      </div>
+
+      <!-- Section 1: Account Balances -->
+      <div class="card">
+        <h3 class="chart-title">💳 账户余额 Account Balances</h3>
+        <p style="font-size:12px;color:#71717a;margin-bottom:16px">截至 <span id="balanceDate">-</span></p>
+        <div style="overflow:auto"><table id="balanceTable"></table></div>
+        <div class="summary-box" style="margin-top:16px">
+          <div class="summary-row">
+            <span style="color:#a1a1aa">总余额 Total Balance</span>
+            <span id="totalBalance" class="green" style="font-weight:700;font-size:18px">$0</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Section 2: Capital Injections & Settlement -->
+      <div class="card">
+        <h3 class="chart-title">💰 股东注资 & 结算 Capital Injections & Settlement</h3>
+        <div style="display:flex;gap:8px;margin-bottom:16px;flex-wrap:wrap">
+          <button class="btn btn-primary" id="filterAllShareholder" onclick="filterShareholder('all')">全部</button>
+          <button class="btn btn-secondary" id="filterJasmine" onclick="filterShareholder('Jasmine')">Jasmine</button>
+          <button class="btn btn-secondary" id="filterJay" onclick="filterShareholder('Jay')">Jay</button>
+        </div>
+        <div style="overflow:auto"><table id="injectionTable"></table></div>
+        
+        <!-- Settlement Summary -->
+        <div class="summary-box" style="margin-top:16px">
+          <h4 style="margin-bottom:12px;font-size:14px;color:#a1a1aa">📊 结算汇总 Settlement Summary</h4>
+          <div class="summary-row">
+            <span>Jasmine 纯个人出资</span>
+            <span id="jasmineTotal" style="font-weight:600">$0</span>
+          </div>
+          <div class="summary-row">
+            <span>Jay 纯个人出资</span>
+            <span id="jayTotal" style="font-weight:600">$0</span>
+          </div>
+          <div class="summary-row">
+            <span>出资差额 (Jay - Jasmine)</span>
+            <span id="diffAmount" style="font-weight:600">$0</span>
+          </div>
+          <div class="summary-row" style="background:#27272a;margin:-8px -16px -16px;padding:16px;border-radius:0 0 8px 8px">
+            <span style="font-weight:600;color:#F59E0B">💸 结算金额</span>
+            <span id="settlementAmount" style="font-weight:700;font-size:18px;color:#F59E0B">$0</span>
+          </div>
+        </div>
+        <div class="chart-box" style="height:250px"><canvas id="chartInjection"></canvas></div>
+      </div>
+
+      <!-- Section 3: Partner Payments -->
+      <div class="card">
+        <h3 class="chart-title">🤝 运营团队打款 Partner Payments</h3>
+        <div style="display:flex;gap:8px;margin-bottom:16px;flex-wrap:wrap">
+          <button class="btn btn-primary" id="filterAllPartner" onclick="filterPartner('all')">全部</button>
+          <button class="btn btn-secondary" id="filterNatalia" onclick="filterPartner('Natalia')">Natalia</button>
+          <button class="btn btn-secondary" id="filterIvan" onclick="filterPartner('Ivan')">Ivan</button>
+          <button class="btn btn-secondary" id="filterUlloque" onclick="filterPartner('ULLOQUE TOLOZA SAS')">ULLOQUE</button>
+        </div>
+        <div style="overflow:auto"><table id="partnerTable"></table></div>
+        
+        <!-- Partner Summary -->
+        <div class="summary-box" style="margin-top:16px">
+          <h4 style="margin-bottom:12px;font-size:14px;color:#a1a1aa">📊 打款汇总 Payment Summary</h4>
+          <div class="summary-row">
+            <span><span class="partner-badge" style="background:#6366F1;color:#fff">Natalia</span></span>
+            <span id="nataliaTotal" style="font-weight:600">$0</span>
+          </div>
+          <div class="summary-row">
+            <span><span class="partner-badge" style="background:#10B981;color:#fff">Ivan</span></span>
+            <span id="ivanTotal" style="font-weight:600">$0</span>
+          </div>
+          <div class="summary-row">
+            <span><span class="partner-badge" style="background:#F59E0B;color:#fff">ULLOQUE</span></span>
+            <span id="ulloqueTotal" style="font-weight:600">$0</span>
+          </div>
+          <div class="summary-row" style="background:#27272a;margin:-8px -16px -16px;padding:16px;border-radius:0 0 8px 8px">
+            <span style="font-weight:600">💵 打款总计 Grand Total</span>
+            <span id="partnerGrandTotal" class="red" style="font-weight:700;font-size:18px">$0</span>
+          </div>
+        </div>
+        <div class="chart-box" style="height:250px"><canvas id="chartPartner"></canvas></div>
+      </div>
+    </div>
+
     <div style="margin-top:32px;text-align:center;color:#52525b;font-size:13px" id="footer"></div>
   </div>
 
@@ -167,6 +278,8 @@
     // ============ CONFIG ============
     var EXPENSE_API_URL = 'https://script.google.com/macros/s/AKfycbxw-1lNdVQAzCPVfYhPUkbifKceJqgx05-AZbkobLwgH420nxep2pv1YAhSyciPlLz2hg/exec';
     var REVENUE_API_URL = 'https://script.google.com/macros/s/AKfycbx_B12Xt5OW-Py5W3hVkehyLv62lABfaDW7IgpzbbmAQhnLWFGkqzjM4f-38ynBaO1U/exec';
+    var RECONCILIATION_API_URL = 'https://script.google.com/macros/s/AKfycbzxdvPOgfBF6LDe7vSAOn5zv9I6NxWFzMD5ubYjPGEZkTid3cV5wu3MbmMI7UoACT2X/exec';
+    var RECON_PASSWORD_HASH = 'e4e777ec75841e5f7f0946f2af9ade99b0ebeb8c027c9f21f20e62276bd131a4'; // SHA-256 of 'HelloL1on!'
 
     // ============ CONSTANTS ============
     var CATS = ['Salary', 'Admin', 'Marketing', 'Creator Incentives', 'Office Rent', 'Offline'];
@@ -190,6 +303,13 @@
     var tab = 'overview';
     var pnlView = 'total';
     var charts = {};
+    
+    // Reconciliation state
+    var isReconUnlocked = false;
+    var reconData = { balances: [], injections: [], payments: [] };
+    var shareholderFilter = 'all';
+    var partnerFilter = 'all';
+    var PARTNER_COLORS = { 'Natalia': '#6366F1', 'Ivan': '#10B981', 'ULLOQUE TOLOZA SAS': '#F59E0B' };
 
     // ============ HELPER: Extract Year from Date (with timezone fix) ============
     function extractYearFromDate(dateStr) {
@@ -224,6 +344,179 @@
         if (!isNaN(parsed) && parsed > 0) return parsed;
       }
       return 0;
+    }
+
+    // ============ PASSWORD & RECONCILIATION ============
+    async function sha256(message) {
+      var msgBuffer = new TextEncoder().encode(message);
+      var hashBuffer = await crypto.subtle.digest('SHA-256', msgBuffer);
+      var hashArray = Array.from(new Uint8Array(hashBuffer));
+      return hashArray.map(function(b) { return b.toString(16).padStart(2, '0'); }).join('');
+    }
+
+    async function checkPassword() {
+      var pwd = document.getElementById('passwordInput').value;
+      var hash = await sha256(pwd);
+      if (hash === RECON_PASSWORD_HASH) {
+        sessionStorage.setItem('reconAuth', 'true');
+        isReconUnlocked = true;
+        closePasswordModal();
+        switchTab('recon');
+      } else {
+        document.getElementById('passwordError').className = '';
+        document.getElementById('passwordInput').value = '';
+      }
+    }
+
+    function closePasswordModal() {
+      document.getElementById('passwordModal').className = 'modal hidden';
+      document.getElementById('passwordError').className = 'hidden';
+      document.getElementById('passwordInput').value = '';
+    }
+
+    function fetchReconData() {
+    var btn = document.getElementById('reconRefreshBtn');
+    if (btn) { btn.disabled = true; btn.textContent = '⏳ 加载中...'; }
+
+    if (!RECONCILIATION_API_URL) {
+      console.warn('RECONCILIATION_API_URL not set');
+      if (btn) { btn.disabled = false; btn.textContent = '🔄 刷新'; }
+      return;
+    }
+
+    fetch(RECONCILIATION_API_URL)
+      .then(function(r) { return r.json(); })
+      .then(function(data) {
+        reconData.balances   = data.balances   || [];
+        reconData.injections = data.injections || [];
+        reconData.payments   = data.payments   || [];
+        document.getElementById('reconLastUpdate').textContent =
+          '数据更新: ' + new Date().toLocaleString();
+        renderReconTab();
+      })
+      .catch(function(err) {
+        console.error('Reconciliation API error:', err);
+        document.getElementById('reconLastUpdate').textContent = '⚠️ 加载失败: ' + err.message;
+      })
+      .finally(function() {
+        if (btn) { btn.disabled = false; btn.textContent = '🔄 刷新'; }
+      });
+  }
+
+    function filterShareholder(f) {
+      shareholderFilter = f;
+      document.getElementById('filterAllShareholder').className = 'btn ' + (f === 'all' ? 'btn-primary' : 'btn-secondary');
+      document.getElementById('filterJasmine').className = 'btn ' + (f === 'Jasmine' ? 'btn-primary' : 'btn-secondary');
+      document.getElementById('filterJay').className = 'btn ' + (f === 'Jay' ? 'btn-primary' : 'btn-secondary');
+      renderReconTab();
+    }
+
+    function filterPartner(f) {
+      partnerFilter = f;
+      document.getElementById('filterAllPartner').className = 'btn ' + (f === 'all' ? 'btn-primary' : 'btn-secondary');
+      document.getElementById('filterNatalia').className = 'btn ' + (f === 'Natalia' ? 'btn-primary' : 'btn-secondary');
+      document.getElementById('filterIvan').className = 'btn ' + (f === 'Ivan' ? 'btn-primary' : 'btn-secondary');
+      document.getElementById('filterUlloque').className = 'btn ' + (f === 'ULLOQUE TOLOZA SAS' ? 'btn-primary' : 'btn-secondary');
+      renderReconTab();
+    }
+
+    function renderReconTab() {
+      // Render Balance Table
+      var totalBal = 0;
+      var balHtml = '<thead><tr><th>账户</th><th>币种</th><th class="text-right">原币余额</th><th class="text-right">USD折算</th><th>备注</th></tr></thead><tbody>';
+      reconData.balances.forEach(function(b) {
+        totalBal += b.usd_equivalent;
+        balHtml += '<tr><td>' + b.account_name + '</td><td>' + b.currency + '</td><td class="text-right">' + b.native_balance.toLocaleString() + '</td><td class="text-right green">$' + b.usd_equivalent.toLocaleString() + '</td><td style="color:#71717a">' + b.notes + '</td></tr>';
+      });
+      balHtml += '</tbody>';
+      document.getElementById('balanceTable').innerHTML = balHtml;
+      document.getElementById('balanceDate').textContent = reconData.balances[0]?.snapshot_date || '-';
+      document.getElementById('totalBalance').textContent = '$' + totalBal.toLocaleString();
+
+      // Render Injection Table
+      var filteredInj = shareholderFilter === 'all' ? reconData.injections : reconData.injections.filter(function(i) { return i.shareholder === shareholderFilter; });
+      var injHtml = '<thead><tr><th>日期</th><th>出资方</th><th>币种</th><th class="text-right">金额</th><th class="text-right">USD折算</th><th>备注</th></tr></thead><tbody>';
+      filteredInj.forEach(function(i) {
+        var recycleTag = i.is_revenue_recycled ? ' <span style="color:#F59E0B;font-size:11px">[收入转注]</span>' : '';
+        injHtml += '<tr><td>' + i.date + '</td><td><span class="badge" style="background:' + (i.shareholder === 'Jasmine' ? '#EC4899' : '#3B82F6') + '">' + i.shareholder + '</span></td><td>' + i.currency + '</td><td class="text-right">' + i.native_amount.toLocaleString() + '</td><td class="text-right green">$' + i.usd_equivalent.toLocaleString() + '</td><td style="color:#71717a">' + i.notes + recycleTag + '</td></tr>';
+      });
+      injHtml += '</tbody>';
+      document.getElementById('injectionTable').innerHTML = injHtml;
+
+      // Calculate Settlement
+      var jasmineTotal = 0, jayTotal = 0, recycledAmount = 0;
+      reconData.injections.forEach(function(i) {
+        if (i.shareholder === 'Jasmine') {
+          jasmineTotal += i.usd_equivalent;
+          if (i.is_revenue_recycled) recycledAmount += i.usd_equivalent;
+        } else {
+          jayTotal += i.usd_equivalent;
+        }
+      });
+      var jasminePure = jasmineTotal - recycledAmount;
+      var diff = jayTotal - jasminePure;
+      var settlement = Math.round(diff / 2);
+      document.getElementById('jasmineTotal').textContent = '$' + jasminePure.toLocaleString();
+      document.getElementById('jayTotal').textContent = '$' + jayTotal.toLocaleString();
+      document.getElementById('diffAmount').textContent = '$' + diff.toLocaleString();
+      document.getElementById('settlementAmount').textContent = diff >= 0
+        ? 'Jasmine 付 Jay $' + settlement.toLocaleString()
+        : 'Jay 付 Jasmine $' + Math.abs(settlement).toLocaleString();
+
+      // Render Partner Table
+      var filteredPay = partnerFilter === 'all' ? reconData.payments : reconData.payments.filter(function(p) { return p.partner === partnerFilter; });
+      var payHtml = '<thead><tr><th>日期</th><th>收款方</th><th class="text-right">金额 (USD)</th><th>期间</th><th>备注</th></tr></thead><tbody>';
+      var cumulative = 0;
+      filteredPay.forEach(function(p) {
+        cumulative += p.usd_equivalent;
+        payHtml += '<tr><td>' + p.date + '</td><td><span class="partner-badge" style="background:' + (PARTNER_COLORS[p.partner] || '#71717a') + ';color:#fff">' + p.partner + '</span></td><td class="text-right red">$' + p.usd_equivalent.toLocaleString() + '</td><td>' + p.period_covered + '</td><td style="color:#71717a">' + p.notes + '</td></tr>';
+      });
+      payHtml += '</tbody>';
+      document.getElementById('partnerTable').innerHTML = payHtml;
+
+      // Calculate Partner Totals
+      var nataliaT = 0, ivanT = 0, ulloqueT = 0;
+      reconData.payments.forEach(function(p) {
+        if (p.partner === 'Natalia') nataliaT += p.usd_equivalent;
+        else if (p.partner === 'Ivan') ivanT += p.usd_equivalent;
+        else ulloqueT += p.usd_equivalent;
+      });
+      document.getElementById('nataliaTotal').textContent = '$' + nataliaT.toLocaleString();
+      document.getElementById('ivanTotal').textContent = '$' + ivanT.toLocaleString();
+      document.getElementById('ulloqueTotal').textContent = '$' + ulloqueT.toLocaleString();
+      document.getElementById('partnerGrandTotal').textContent = '$' + (nataliaT + ivanT + ulloqueT).toLocaleString();
+
+      // Injection Chart
+      if (charts.chartInjection) charts.chartInjection.destroy();
+      charts.chartInjection = new Chart(document.getElementById('chartInjection'), {
+        type: 'bar',
+        data: {
+          labels: ['Jasmine', 'Jay'],
+          datasets: [{
+            label: 'USD Contribution',
+            data: [jasminePure, jayTotal],
+            backgroundColor: ['#EC4899', '#3B82F6']
+          }]
+        },
+        options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } }, scales: { y: { beginAtZero: true, ticks: { color: '#a1a1aa' } }, x: { ticks: { color: '#a1a1aa' } } } }
+      });
+
+      // Partner Chart
+      if (charts.chartPartner) charts.chartPartner.destroy();
+      charts.chartPartner = new Chart(document.getElementById('chartPartner'), {
+        type: 'bar',
+        data: {
+          labels: ['Natalia', 'Ivan', 'ULLOQUE'],
+          datasets: [{
+            label: 'USD Payments',
+            data: [nataliaT, ivanT, ulloqueT],
+            backgroundColor: ['#3B82F6', '#10B981', '#F59E0B']
+          }]
+        },
+        options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } }, scales: { y: { beginAtZero: true, ticks: { color: '#a1a1aa' } }, x: { ticks: { color: '#a1a1aa' } } } }
+      });
+
+      document.getElementById('reconLastUpdate').textContent = '数据更新: ' + new Date().toLocaleString();
     }
 
     // ============ DATA FETCHING ============
@@ -430,13 +723,30 @@
     function showAllSSC() { visSSC = new Set(allSSC); initUI(); updateAll(); }
 
     function switchTab(t) {
+      // Check password for recon tab
+      if (t === 'recon' && !isReconUnlocked) {
+        if (!sessionStorage.getItem('reconAuth')) {
+          document.getElementById('passwordModal').className = 'modal';
+          document.getElementById('passwordInput').focus();
+          return;
+        }
+        isReconUnlocked = true;
+      }
+      
       tab = t;
       document.getElementById('overviewTab').className = t === 'overview' ? '' : 'hidden';
       document.getElementById('pnlTab').className = t === 'pnl' ? '' : 'hidden';
       document.getElementById('revenueTab').className = t === 'revenue' ? '' : 'hidden';
+      document.getElementById('reconTab').className = t === 'recon' ? '' : 'hidden';
       document.getElementById('tabOverview').className = 'btn ' + (t === 'overview' ? 'btn-primary' : 'btn-secondary');
       document.getElementById('tabPnl').className = 'btn ' + (t === 'pnl' ? 'btn-primary' : 'btn-secondary');
       document.getElementById('tabRevenue').className = 'btn ' + (t === 'revenue' ? 'btn-primary' : 'btn-secondary');
+      document.getElementById('tabRecon').className = 'btn ' + (t === 'recon' ? 'btn-primary' : 'btn-secondary');
+      document.getElementById('tabRecon').innerHTML = (t === 'recon' || isReconUnlocked) ? '🔓 对账' : '🔒 对账';
+      
+      if (t === 'recon') {
+        fetchReconData();
+      }
       updateAll();
     }
 
@@ -574,7 +884,7 @@
         '<div class="card"><p class="kpi-label">📊 Net Profit</p><p class="kpi-value ' + (net >= 0 ? 'green' : 'red') + '">' + fmt(net) + '</p></div>' +
         '<div class="card"><p class="kpi-label">📈 Profit Margin</p><p class="kpi-value ' + (net >= 0 ? 'green' : 'red') + '">' + margin + '%</p></div>';
 
-      document.getElementById('footer').textContent = 'Financial Dashboard v7.8 · ' + processedExpenseData.length + ' expenses · ' + rev.length + ' revenue';
+      document.getElementById('footer').textContent = 'Financial Dashboard v8.0 · ' + processedExpenseData.length + ' expenses · ' + rev.length + ' revenue';
 
       var labels = pnl.map(function(d) { return d.label; });
       var chartOpts = { responsive: true, maintainAspectRatio: false, plugins: { legend: { labels: { color: '#a1a1aa' } } }, scales: { x: { ticks: { color: '#71717a' } }, y: { ticks: { color: '#71717a' } } } };
