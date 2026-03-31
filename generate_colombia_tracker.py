@@ -323,7 +323,9 @@ def build_staff(wb):
 
     # Store metadata for UE_Summary
     ws._col_cost_start  = col_cost_s
-    ws._staff_data_rows = (4, tot_row - 1)
+    # Use a generous range (row 4 to 200) so manually added staff rows
+    # are automatically included in UE_Summary SUM formulas.
+    ws._staff_data_rows = (4, 200)
 
 
 def build_monthly_data(wb):
