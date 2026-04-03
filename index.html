@@ -282,10 +282,12 @@
     var RECON_PASSWORD_HASH = 'e4e777ec75841e5f7f0946f2af9ade99b0ebeb8c027c9f21f20e62276bd131a4'; // SHA-256 of 'HelloL1on!'
 
     // ============ CONSTANTS ============
-    var CATS = ['Salary', 'Admin', 'Marketing', 'Creator Incentives', 'Office Rent', 'Offline'];
+    var CATS = []; // populated dynamically from live data — see updateCatsFromData()
     var BUS = ['Latam agency', 'Office', 'Group live', 'USA agency'];
     var BUS3 = ['Latam agency', 'Group live', 'USA agency'];
-    var CAT_COL = { Salary: '#3B82F6', Admin: '#10B981', Marketing: '#F59E0B', 'Creator Incentives': '#8B5CF6', 'Office Rent': '#EC4899', Offline: '#6366F1' };
+    var CAT_COL = { Salary: '#3B82F6', Admin: '#10B981', Marketing: '#F59E0B', 'Creator Incentives': '#8B5CF6', 'Office Rent': '#EC4899', Offline: '#6366F1', Decoration: '#F97316', Device: '#14B8A6' };
+    var CAT_PALETTE = ['#3B82F6','#10B981','#F59E0B','#8B5CF6','#EC4899','#6366F1','#F97316','#14B8A6','#EF4444','#06B6D4','#84CC16','#A78BFA'];
+    function getCatColor(cat) { return CAT_COL[cat] || CAT_PALETTE[CATS.indexOf(cat) % CAT_PALETTE.length] || '#6B7280'; }
     var BU_COL = { 'Latam agency': '#3B82F6', 'Group live': '#F59E0B', 'USA agency': '#8B5CF6', Office: '#10B981' };
     var MO = ['', 'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 
@@ -634,6 +636,13 @@
         }
         return processed;
       });
+
+      // Derive CATS dynamically from processed data
+      var seen = {};
+      processedExpenseData.forEach(function(d) { if (d.category) seen[d.category] = true; });
+      var newCats = Object.keys(seen).sort();
+      newCats.forEach(function(c) { if (CATS.indexOf(c) === -1) visCats.add(c); });
+      CATS = newCats;
     }
 
     // ============ UI INITIALIZATION ============
@@ -784,13 +793,11 @@
           data[k] = {
             k: k, y: y, m: m, label: MO[m] + ' ' + y,
             rev: 0, exp: 0,
-            expSalary: 0, expAdmin: 0, expMarketing: 0, expCreatorIncentives: 0, expOfficeRent: 0, expOffline: 0,
+            expByCat: {}, offByCat: {},
             expLatam: 0, expOffice: 0, expGroup: 0, expUSA: 0,
             revLatam: 0, revGroup: 0, revUSA: 0,
             // Track ALL BU revenue for allocation ratios (not filtered by selection)
-            allRevLatam: 0, allRevGroup: 0, allRevUSA: 0, allRevTotal: 0,
-            // Office BU category breakdown for allocation
-            offSalary: 0, offAdmin: 0, offMarketing: 0, offCreatorIncentives: 0, offOfficeRent: 0, offOffline: 0
+            allRevLatam: 0, allRevGroup: 0, allRevUSA: 0, allRevTotal: 0
           };
         }
       });
@@ -825,22 +832,12 @@
           data[k].exp += i.inUSD;
           
           // Track Office BU expenses by category separately
+          var cat = i.category;
           if (i.subCategory === 'Office') {
             data[k].expOffice += i.inUSD;
-            if (i.category === 'Salary') data[k].offSalary += i.inUSD;
-            else if (i.category === 'Admin') data[k].offAdmin += i.inUSD;
-            else if (i.category === 'Marketing') data[k].offMarketing += i.inUSD;
-            else if (i.category === 'Creator Incentives') data[k].offCreatorIncentives += i.inUSD;
-            else if (i.category === 'Office Rent') data[k].offOfficeRent += i.inUSD;
-            else if (i.category === 'Offline') data[k].offOffline += i.inUSD;
+            data[k].offByCat[cat] = (data[k].offByCat[cat] || 0) + i.inUSD;
           } else {
-            // Non-Office BU expenses
-            if (i.category === 'Salary') data[k].expSalary += i.inUSD;
-            else if (i.category === 'Admin') data[k].expAdmin += i.inUSD;
-            else if (i.category === 'Marketing') data[k].expMarketing += i.inUSD;
-            else if (i.category === 'Creator Incentives') data[k].expCreatorIncentives += i.inUSD;
-            else if (i.category === 'Office Rent') data[k].expOfficeRent += i.inUSD;
-            else if (i.category === 'Offline') data[k].expOffline += i.inUSD;
+            data[k].expByCat[cat] = (data[k].expByCat[cat] || 0) + i.inUSD;
           }
           
           if (i.subCategory === 'Latam agency') data[k].expLatam += i.inUSD;
@@ -908,12 +905,9 @@
       // Chart 2: Expense by Category (when alloc on, add Office's category expenses)
       if (charts.c2) charts.c2.destroy();
       var catDS = [];
-      if (visCats.has('Salary')) catDS.push({ label: 'Salary', data: pnl.map(function(d) { return alloc ? d.expSalary + d.offSalary : d.expSalary; }), backgroundColor: '#3B82F6', stack: 's' });
-      if (visCats.has('Admin')) catDS.push({ label: 'Admin', data: pnl.map(function(d) { return alloc ? d.expAdmin + d.offAdmin : d.expAdmin; }), backgroundColor: '#10B981', stack: 's' });
-      if (visCats.has('Marketing')) catDS.push({ label: 'Marketing', data: pnl.map(function(d) { return alloc ? d.expMarketing + d.offMarketing : d.expMarketing; }), backgroundColor: '#F59E0B', stack: 's' });
-      if (visCats.has('Creator Incentives')) catDS.push({ label: 'Creator Incentives', data: pnl.map(function(d) { return alloc ? d.expCreatorIncentives + d.offCreatorIncentives : d.expCreatorIncentives; }), backgroundColor: '#8B5CF6', stack: 's' });
-      if (visCats.has('Office Rent')) catDS.push({ label: 'Office Rent', data: pnl.map(function(d) { return alloc ? d.expOfficeRent + d.offOfficeRent : d.expOfficeRent; }), backgroundColor: '#EC4899', stack: 's' });
-      if (visCats.has('Offline')) catDS.push({ label: 'Offline', data: pnl.map(function(d) { return alloc ? d.expOffline + d.offOffline : d.expOffline; }), backgroundColor: '#6366F1', stack: 's' });
+      CATS.forEach(function(cat) {
+        if (visCats.has(cat)) catDS.push({ label: cat, data: pnl.map(function(d) { return (d.expByCat[cat] || 0) + (alloc ? (d.offByCat[cat] || 0) : 0); }), backgroundColor: getCatColor(cat), stack: 's' });
+      });
       charts.c2 = new Chart(document.getElementById('chart2'), { type: 'bar', data: { labels: labels, datasets: catDS }, options: stackOpts });
 
       // Chart 3: Expense by BU (when alloc on, hide Office and add to others)
