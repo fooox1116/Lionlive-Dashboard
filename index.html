@@ -155,6 +155,19 @@
  <div class="toggle-buttons" id="sscToggles"></div>
  <div class="chart-box"><canvas id="chart5"></canvas></div>
  </div>
+
+ <!-- Group Live: CAPEX vs OPEX -->
+ <div class="card" id="capexOpexCard">
+ <h3 class="chart-title">Group Live: CAPEX vs OPEX by Month</h3>
+ <div class="kpi-grid" id="capexKpis" style="margin-bottom:16px"></div>
+ <div class="chart-box"><canvas id="chart6"></canvas></div>
+ </div>
+
+ <!-- Group Live: Expense by Cost Center -->
+ <div class="card" id="costCenterCard">
+ <h3 class="chart-title">Group Live: Expense by Cost Center (F column)</h3>
+ <div class="chart-box"><canvas id="chart7"></canvas></div>
+ </div>
  </div>
 
  <!-- P&L Tab -->
@@ -545,13 +558,18 @@
  var year = extractYearFromDate(item.Date);
  if (usdAmount <= 0 || !category || !subCategory) return;
  totalUSD += usdAmount;
+ var amStr = String(item["Actual Month"] || '');
+ var actualMonth = amStr.indexOf('-') !== -1 ? (parseInt(amStr.split('-')[1]) || 1) : (parseInt(amStr) || 1);
  rawExpenseData.push({
- actualMonth: parseInt(item["Actual Month"]) || 1,
+ actualMonth: actualMonth,
  year: year,
  date: item.Date || '',
  category: category,
  subCategory: subCategory,
  subSubCategory: item["SUB SUB category"] || '',
+ businessUnit: item["Business Unit"] || '',
+ costCenter: item["Group Live Cost center"] || '',
+ capexOpex: item["CAPEX/OPEX"] || '',
  item: item.Item || '',
  inUSD: usdAmount
  });
@@ -881,7 +899,7 @@
  '<div class="card"><p class="kpi-label">Net Profit</p><p class="kpi-value ' + (net >= 0 ? 'green' : 'red') + '">' + fmt(net) + '</p></div>' +
  '<div class="card"><p class="kpi-label">Profit Margin</p><p class="kpi-value ' + (net >= 0 ? 'green' : 'red') + '">' + margin + '%</p></div>';
 
- document.getElementById('footer').textContent = 'Financial Dashboard v8.0 · ' + processedExpenseData.length + ' expenses · ' + rev.length + ' revenue';
+ document.getElementById('footer').textContent = 'Financial Dashboard v8.1 · ' + processedExpenseData.length + ' expenses · ' + rev.length + ' revenue';
 
  var labels = pnl.map(function(d) { return d.label; });
  var chartOpts = { responsive: true, maintainAspectRatio: false, plugins: { legend: { labels: { color: '#a1a1aa' } } }, scales: { x: { ticks: { color: '#71717a' } }, y: { ticks: { color: '#71717a' } } } };
@@ -952,6 +970,57 @@
  }
  });
  charts.c5 = new Chart(document.getElementById('chart5'), { type: 'bar', data: { labels: labels, datasets: sscDS }, options: stackOpts });
+
+ // Chart 6: Group Live CAPEX vs OPEX by Month
+ if (charts.c6) charts.c6.destroy();
+ var glCapex = {}, glOpex = {};
+ pnl.forEach(function(d) { glCapex[d.k] = 0; glOpex[d.k] = 0; });
+ processedExpenseData.forEach(function(e) {
+ var y = adjustEarlyMonth ? e.adjustedYear : e.year;
+ var m = adjustEarlyMonth ? e.adjustedMonth : e.actualMonth;
+ var k = y + '-' + m;
+ if (selYears.indexOf(y) === -1 || e.businessUnit !== 'Group live') return;
+ if (glCapex[k] === undefined) return;
+ if (e.capexOpex === 'CAPEX') glCapex[k] += e.inUSD;
+ else if (e.capexOpex === 'OPEX') glOpex[k] += e.inUSD;
+ });
+ var totalCapex = Object.keys(glCapex).reduce(function(s,k){return s+glCapex[k];},0);
+ var totalOpex = Object.keys(glOpex).reduce(function(s,k){return s+glOpex[k];},0);
+ var capexRatio = (totalCapex+totalOpex) > 0 ? (totalCapex/(totalCapex+totalOpex)*100).toFixed(1) : 0;
+ document.getElementById('capexKpis').innerHTML =
+ '<div class="card"><p class="kpi-label">Total CAPEX</p><p class="kpi-value" style="color:#F59E0B">' + fmt(totalCapex) + '</p></div>' +
+ '<div class="card"><p class="kpi-label">Total OPEX</p><p class="kpi-value red">' + fmt(totalOpex) + '</p></div>' +
+ '<div class="card"><p class="kpi-label">CAPEX Ratio</p><p class="kpi-value" style="color:#F59E0B">' + capexRatio + '%</p></div>';
+ charts.c6 = new Chart(document.getElementById('chart6'), {
+ type: 'bar',
+ data: {
+ labels: labels,
+ datasets: [
+ { label: 'CAPEX', data: pnl.map(function(d){return glCapex[d.k]||0;}), backgroundColor: '#F59E0B', stack: 's' },
+ { label: 'OPEX', data: pnl.map(function(d){return glOpex[d.k]||0;}), backgroundColor: '#EF4444', stack: 's' }
+ ]
+ },
+ options: stackOpts
+ });
+
+ // Chart 7: Group Live Expense by Cost Center (F column)
+ if (charts.c7) charts.c7.destroy();
+ var ccMap = {};
+ processedExpenseData.forEach(function(e) {
+ var y = adjustEarlyMonth ? e.adjustedYear : e.year;
+ var m = adjustEarlyMonth ? e.adjustedMonth : e.actualMonth;
+ var k = y + '-' + m;
+ if (selYears.indexOf(y) === -1 || e.businessUnit !== 'Group live') return;
+ var cc = e.costCenter || '(no cost center)';
+ if (!ccMap[cc]) ccMap[cc] = {};
+ ccMap[cc][k] = (ccMap[cc][k] || 0) + e.inUSD;
+ });
+ var CC_COLORS = ['#3B82F6','#8B5CF6','#10B981','#06B6D4','#F59E0B','#EC4899','#EF4444'];
+ var ccKeys = Object.keys(ccMap).sort();
+ var ccDS = ccKeys.map(function(cc, i) {
+ return { label: cc, data: pnl.map(function(d){return ccMap[cc][d.k]||0;}), backgroundColor: CC_COLORS[i % CC_COLORS.length], stack: 's' };
+ });
+ charts.c7 = new Chart(document.getElementById('chart7'), { type: 'bar', data: { labels: labels, datasets: ccDS }, options: stackOpts });
 
  // P&L Tab
  if (pnlView !== 'total') {
