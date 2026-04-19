@@ -561,8 +561,10 @@
  var actualMonth, year;
  if (amStr.indexOf('T') !== -1 || (amStr.indexOf('-') !== -1 && amStr.length > 7)) {
  var amDate = new Date(amStr);
- actualMonth = isNaN(amDate.getTime()) ? 1 : (amDate.getUTCMonth() + 1);
- year = isNaN(amDate.getTime()) ? extractYearFromDate(item.Date) : amDate.getUTCFullYear();
+ // Google Sheets TZ is UTC+8; raw timestamps are off by -8h, shift to get correct month
+ var amAdj = new Date(amDate.getTime() + 8 * 3600000);
+ actualMonth = isNaN(amAdj.getTime()) ? 1 : (amAdj.getUTCMonth() + 1);
+ year = isNaN(amAdj.getTime()) ? extractYearFromDate(item.Date) : amAdj.getUTCFullYear();
  } else if (amStr.indexOf('-') !== -1) {
  var parts = amStr.split('-');
  year = parseInt(parts[0]) || extractYearFromDate(item.Date);
@@ -999,17 +1001,30 @@
  var totalCapex = Object.keys(glCapex).reduce(function(s,k){return s+glCapex[k];},0);
  var totalOpex = Object.keys(glOpex).reduce(function(s,k){return s+glOpex[k];},0);
  var capexRatio = (totalCapex+totalOpex) > 0 ? (totalCapex/(totalCapex+totalOpex)*100).toFixed(1) : 0;
+ // Group Live Revenue for Gross Profit
+ var glRev = {};
+ pnl.forEach(function(d) { glRev[d.k] = 0; });
+ fRev.forEach(function(r) {
+ if (r.businessUnit !== 'Group live') return;
+ var k = r.year + '-' + r.month;
+ if (glRev[k] !== undefined) glRev[k] += r.amount;
+ });
+ var totalGLRev = Object.keys(glRev).reduce(function(s,k){return s+glRev[k];},0);
+ var grossProfit = totalGLRev - totalOpex;
+ var gpClass = grossProfit >= 0 ? 'green' : 'red';
  document.getElementById('capexKpis').innerHTML =
- '<div class="card"><p class="kpi-label">Total CAPEX</p><p class="kpi-value" style="color:#F59E0B">' + fmt(totalCapex) + '</p></div>' +
+ '<div class="card"><p class="kpi-label">GL Revenue</p><p class="kpi-value green">' + fmt(totalGLRev) + '</p></div>' +
  '<div class="card"><p class="kpi-label">Total OPEX</p><p class="kpi-value red">' + fmt(totalOpex) + '</p></div>' +
- '<div class="card"><p class="kpi-label">CAPEX Ratio</p><p class="kpi-value" style="color:#F59E0B">' + capexRatio + '%</p></div>';
+ '<div class="card"><p class="kpi-label">Gross Profit (Rev−OPEX)</p><p class="kpi-value ' + gpClass + '">' + fmt(grossProfit) + '</p></div>' +
+ '<div class="card"><p class="kpi-label">Total CAPEX</p><p class="kpi-value" style="color:#F59E0B">' + fmt(totalCapex) + '</p></div>';
  charts.c6 = new Chart(document.getElementById('chart6'), {
  type: 'bar',
  data: {
  labels: labels,
  datasets: [
  { label: 'CAPEX', data: pnl.map(function(d){return glCapex[d.k]||0;}), backgroundColor: '#F59E0B', stack: 's' },
- { label: 'OPEX', data: pnl.map(function(d){return glOpex[d.k]||0;}), backgroundColor: '#EF4444', stack: 's' }
+ { label: 'OPEX', data: pnl.map(function(d){return glOpex[d.k]||0;}), backgroundColor: '#EF4444', stack: 's' },
+ { label: 'Revenue', data: pnl.map(function(d){return glRev[d.k]||0;}), type: 'line', borderColor: '#10B981', backgroundColor: 'rgba(16,185,129,0.1)', borderWidth: 2, pointRadius: 4, fill: false, order: 0 }
  ]
  },
  options: stackOpts
