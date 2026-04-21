@@ -918,6 +918,8 @@
  var chartOpts = { responsive: true, maintainAspectRatio: false, plugins: { legend: { labels: { color: '#a1a1aa' } } }, scales: { x: { ticks: { color: '#71717a' } }, y: { ticks: { color: '#71717a' } } } };
  var stackOpts = { responsive: true, maintainAspectRatio: false, plugins: { legend: { labels: { color: '#a1a1aa' } } }, scales: { x: { stacked: true, ticks: { color: '#71717a' } }, y: { stacked: true, ticks: { color: '#71717a' } } } };
 
+ // Charts 1-5 wrapped in try/catch so chart6/7 always renders
+ try {
  // Chart 1: Revenue vs Expense
  if (charts.c1) charts.c1.destroy();
  charts.c1 = new Chart(document.getElementById('chart1'), {
@@ -983,8 +985,11 @@
  }
  });
  charts.c5 = new Chart(document.getElementById('chart5'), { type: 'bar', data: { labels: labels, datasets: sscDS }, options: stackOpts });
+ } catch(e) { console.error('Charts 1-5 error:', e); }
 
  // Chart 6 & 7: Group Live analysis
+ var glCount = processedExpenseData.filter(function(e){return e.businessUnit==='Group live';}).length;
+ console.log('GL expenses for chart6:', glCount, 'pnl keys:', pnl.length);
  try {
  if (charts.c6) charts.c6.destroy();
  var glCapex = {}, glOpex = {};
@@ -1048,7 +1053,10 @@
  return { label: cc, data: pnl.map(function(d){return ccMap[cc][d.k]||0;}), backgroundColor: CC_COLORS[i % CC_COLORS.length], stack: 's' };
  });
  charts.c7 = new Chart(document.getElementById('chart7'), { type: 'bar', data: { labels: labels, datasets: ccDS }, options: stackOpts });
- } catch(e) { console.error('Chart6/7 error:', e); }
+ } catch(e) {
+ console.error('Chart6/7 error:', e);
+ document.getElementById('capexKpis').innerHTML = '<div class="info-box info-yellow">Chart error: ' + e.message + '</div>';
+ }
 
  // P&L Tab
  if (pnlView !== 'total') {
