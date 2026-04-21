@@ -896,10 +896,11 @@
 
  // ============ UPDATE ALL ============
  function updateAll() {
+ try {
  var adjustEarlyMonth = document.getElementById('adjustEarlyMonth').checked;
  var alloc = document.getElementById('allocateOffice').checked;
  var pnl = calcData();
- 
+
  var tRev = pnl.reduce(function(s, d) { return s + d.rev; }, 0);
  var tExp = pnl.reduce(function(s, d) { return s + d.exp; }, 0);
  var net = tRev - tExp;
@@ -912,7 +913,7 @@
  '<div class="card"><p class="kpi-label">Net Profit</p><p class="kpi-value ' + (net >= 0 ? 'green' : 'red') + '">' + fmt(net) + '</p></div>' +
  '<div class="card"><p class="kpi-label">Profit Margin</p><p class="kpi-value ' + (net >= 0 ? 'green' : 'red') + '">' + margin + '%</p></div>';
 
- document.getElementById('footer').textContent = 'Financial Dashboard v8.1 · ' + processedExpenseData.length + ' expenses · ' + rev.length + ' revenue';
+ document.getElementById('footer').textContent = 'Financial Dashboard v8.3 · ' + processedExpenseData.length + ' expenses · ' + rev.length + ' revenue';
 
  var labels = pnl.map(function(d) { return d.label; });
  var chartOpts = { responsive: true, maintainAspectRatio: false, plugins: { legend: { labels: { color: '#a1a1aa' } } }, scales: { x: { ticks: { color: '#71717a' } }, y: { ticks: { color: '#71717a' } } } };
@@ -1107,6 +1108,13 @@
  });
  rt += '</tbody>';
  document.getElementById('revTable').innerHTML = rt;
+
+ } catch(globalErr) {
+ console.error('updateAll error:', globalErr);
+ var errDiv = document.getElementById('errorBox');
+ errDiv.textContent = 'Dashboard error: ' + globalErr.message + ' (at ' + globalErr.stack.split('\n')[1].trim() + ')';
+ errDiv.className = 'info-box info-yellow';
+ }
  }
 
  // ============ INIT ============
